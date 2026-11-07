@@ -133,6 +133,13 @@
     if (OA.World && OA.World.shadowsDirty) OA.World.shadowsDirty();
   };
 
+  const fromText = (text) => {
+    const bin = root.atob(text);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out.buffer;
+  };
+
   // One at a time, so a colony full of buildings doesn't stall the frame rate.
   const next = async () => {
     if (loading) return;
@@ -141,9 +148,11 @@
     loading = true;
     const e = entries.get(key);
     try {
-      const res = await root.fetch('assets/cooked/' + key + '.' + G.Q.cook + '.bin?v=' + OA.COOKED[key]);
+      // Claude artifacts only serve known file types, so there the same bytes come as text.
+      const text = !!root.claude;
+      const res = await root.fetch('assets/cooked/' + key + '.' + G.Q.cook + (text ? '.txt' : '.bin') + '?v=' + OA.COOKED[key]);
       if (!res.ok) throw new Error('Missing');
-      await finish(key, e, await res.arrayBuffer());
+      await finish(key, e, text ? fromText(await res.text()) : await res.arrayBuffer());
     } catch (err) {
       // The code-built model simply stays.
       e.failed = true;

@@ -18,4 +18,12 @@ fs.mkdirSync(path.join(root, 'dist/artifact'), { recursive: true });
 fs.writeFileSync(path.join(root, 'dist/artifact/orbit-acres.html'), head + body + tail);
 fs.writeFileSync(path.join(root, 'dist/orbit-acres.html'),
   '<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">\n' + head + '</head>\n<body>\n' + body + tail + '</body>\n</html>\n');
+// Artifacts refuse .bin files, so their copy of the baked models is base64 text.
+const cooked = path.join(root, 'assets/cooked');
+const textDir = path.join(root, 'dist/artifact/assets/cooked');
+fs.rmSync(textDir, { recursive: true, force: true });
+fs.mkdirSync(textDir, { recursive: true });
+fs.readdirSync(cooked).filter((f) => f.endsWith('.bin')).forEach((f) => {
+  fs.writeFileSync(path.join(textDir, f.replace(/.bin$/, '.txt')), fs.readFileSync(path.join(cooked, f)).toString('base64'));
+});
 console.log('Bundled', scripts.length, 'scripts:', (fs.statSync(path.join(root, 'dist/orbit-acres.html')).size / 1024).toFixed(0) + ' KB');
