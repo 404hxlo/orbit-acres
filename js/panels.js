@@ -46,10 +46,10 @@
       Au.unlock();
       Au.play('tap');
       p.on(b.dataset.a, b.dataset, cur.args, e);
-      if (cur && cur.name === name) UI.rerender();
+      if (cur && cur.name === name) UI.rerender(true);
       UI.update();
     });
-    UI.rerender();
+    UI.rerender(true);
     OA.emit('panelOpened', { name, args });
   };
   UI.close = (quiet) => {
@@ -61,8 +61,10 @@
     setTimeout(() => c.wrap.remove(), quiet ? 0 : 170);
     if (!quiet) OA.emit('panelClosed', { name: c.name });
   };
-  UI.rerender = () => {
+  UI.rerender = (force) => {
     if (!cur) return;
+    const typing = document.activeElement;
+    if (force !== true && typing && cur.body.contains(typing) && /^(INPUT|TEXTAREA)$/.test(typing.tagName)) return;
     const top = cur.body.scrollTop;
     const ok = cur.p.render(cur.body, cur.args);
     if (ok === false) { UI.close(); return; }
@@ -460,7 +462,7 @@
         </div>
         <p class="lead">Your colony saves itself. Crops and goods keep working while the game is closed.</p>
         <details class="keys"><summary>Controls</summary><p class="lead">Drag to spin the planet. Pinch or scroll to zoom. Drag across ripe plots to harvest. Hold on a building to move it. On a keyboard, arrow keys pan, plus and minus zoom, and Esc closes windows.</p></details>
-        <div class="row"><button class="btn coral" data-a="wipe">Start a new colony</button></div>
+        <div class="row wrap"><button class="btn mint" data-a="move">Move colony to another device</button><button class="btn coral" data-a="wipe">Start a new colony</button></div>
         <p class="lead small">Orbit Acres ${OA.VERSION}</p>`;
       const input = el.querySelector('#colonyName');
       input.onchange = () => { st.name = input.value.trim() || 'New Haven'; UI.update(); };
@@ -469,6 +471,7 @@
       const st = S();
       if (act === 'sound') st.settings.sound = !st.settings.sound;
       if (act === 'music') st.settings.music = !st.settings.music;
+      if (act === 'move') UI.open('move');
       if (act === 'wipe') {
         UI.confirm('Start over?', 'This erases your whole colony, on every device. It cannot be undone.', 'Erase everything', async () => {
           OA.Store.clearLocal();
@@ -478,6 +481,104 @@
         }, 'coral');
       }
     },
+  };
+
+  // ---- Moving a colony between devices ----
+  P.move = {
+    title: 'Move Your Colony',
+    render(el, a) {
+      const Tr = OA.Transfer;
+      const live = Tr.liveOK();
+      const copyLabel = Tr.linkOK() ? 'Copy colony link' : 'Copy save code';
+      if (a.code === undefined) {
+        a.code = null;
+        Tr.encode().then((code) => {
+          a.code = code;
+          const b = el.querySelector('#copyColony');
+          if (b) b.disabled = false;
+        });
+      }
+      const send = a.send || {};
+      let liveHtml = '';
+      if (live) {
+        if (send.state === 'waiting') {
+          liveHtml = '<div class="mv-code">' + send.code.slice(0, 3) + ' ' + send.code.slice(3) + '</div><p class="lead">Type this on your other device, under Receive a colony. Keep this window open.</p><div class="row"><button class="btn" data-a="cancel">Cancel</button></div>';
+        } else if (send.state === 'starting') {
+          liveHtml = '<p class="lead">Getting a code...</p>';
+        } else if (send.state === 'sent') {
+          liveHtml = '<p class="lead oktxt">Sent! Your colony is on the other device now.</p>';
+        } else {
+          liveHtml = '<p class="lead">Open the game on your other device, then get a short code to type there.</p><div class="row"><button class="btn mint" data-a="send">Get a code</button></div>';
+        }
+      }
+      el.innerHTML =
+        '<section class="mv"><h3>Send this colony</h3>' + liveHtml +
+        '<p class="lead">' + (live ? 'Other device not handy? Copy a link and paste it anywhere, like email or your notes.' : 'Copy the code and paste it anywhere, like email or your notes.') + '</p>' +
+        '<div class="row"><button class="btn ' + (live ? '' : 'mint') + '" id="copyColony" data-a="copy" ' + (a.code ? '' : 'disabled') + '>' + copyLabel + '</button></div>' +
+        (a.showCode ? '<textarea id="codeOut" rows="3" readonly aria-label="Your colony, ready to copy"></textarea><p class="lead small">Your browser blocked copying, so select this text and copy it yourself.</p>' : '') +
+        '</section>' +
+        '<section class="mv"><h3>Receive a colony</h3>' +
+        '<label class="field" for="codeIn"><span>' + (live ? 'Type a code, or paste a link' : 'Paste a code or link') + '</span>' +
+        '<textarea id="codeIn" rows="2" autocapitalize="characters" autocomplete="off" autocorrect="off" spellcheck="false"></textarea></label>' +
+        '<p class="lead">This replaces the colony on this device. After that, the two copies carry on separately.</p>' +
+        '<div class="row"><button class="btn gold" data-a="get" ' + (a.getting ? 'disabled' : '') + '>' + (a.getting ? 'Connecting...' : 'Get colony') + '</button></div>' +
+        (OA.Store.readBackup() ? '<div class="row"><button class="btn mini" data-a="undo">Bring back the colony from before</button></div>' : '') +
+        '</section>';
+      const box = el.querySelector('#codeIn');
+      box.value = a.input || '';
+      box.oninput = () => { a.input = box.value; };
+      const out = el.querySelector('#codeOut');
+      if (out) out.value = Tr.share(a.code);
+    },
+    on(act, d, a) {
+      const Tr = OA.Transfer;
+      const here = () => cur && cur.args === a;
+      const refresh = () => { if (here()) UI.rerender(true); };
+      if (act === 'send') {
+        a.send = { state: 'starting' };
+        Tr.send({
+          code: (code) => { a.send = { state: 'waiting', code }; refresh(); },
+          sent: () => { a.send = { state: 'sent' }; Au.play('gem'); refresh(); },
+          fail: (why) => { a.send = {}; UI.fail({ why: Tr.failText(why) }); refresh(); },
+        }).then((stop) => { a.stopSend = stop; if (!here()) stop(); });
+      }
+      if (act === 'cancel') { if (a.stopSend) a.stopSend(); a.send = {}; }
+      if (act === 'copy') {
+        const show = () => {
+          a.showCode = true;
+          refresh();
+          const out = cur && cur.body.querySelector('#codeOut');
+          if (out) { out.focus(); out.select(); }
+        };
+        const text = Tr.share(a.code);
+        if (root.navigator.clipboard && root.navigator.clipboard.writeText) {
+          root.navigator.clipboard.writeText(text).then(() => UI.toast('Copied! Paste it somewhere you can reach from the other device.', 'good'), show);
+        } else show();
+      }
+      if (act === 'get') {
+        const text = (a.input || '').trim();
+        if (!text) { UI.fail({ why: 'Type a code or paste a link first.' }); return; }
+        if (Tr.isShort(text)) {
+          a.getting = true;
+          Tr.receive(text, {
+            got: (data) => { a.getting = false; refresh(); UI.offerColony(data); },
+            fail: (why) => { a.getting = false; UI.fail({ why: Tr.failText(why) }); refresh(); },
+          }).then((stop) => { a.stopGet = stop; if (!here()) stop(); });
+        } else {
+          Tr.decode(text).then(UI.offerColony).catch((e) => UI.fail({ why: Tr.why(e) }));
+        }
+      }
+      if (act === 'undo') UI.confirm('Bring back the old colony?', 'This swaps back to the colony this device had before the last move.', 'Bring it back', () => Tr.undo());
+    },
+    onClose(a) {
+      if (a.stopSend) a.stopSend();
+      if (a.stopGet) a.stopGet();
+    },
+  };
+
+  UI.offerColony = (data) => {
+    Au.play('gem');
+    UI.confirm('Load this colony?', data.name + ', level ' + data.level + '. It replaces the colony on this device. You can undo this from Settings.', 'Load it', () => OA.Transfer.apply(data));
   };
 
   // ---- Full-screen moments ----

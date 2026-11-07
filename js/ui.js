@@ -559,6 +559,7 @@
 
   UI.offerCloud = (text) => {
     UI.confirm('Newer colony found', 'A more recent save exists on another device. Load it? This replaces what is on this screen.', 'Load it', () => {
+      OA.Store.noSave = true;
       OA.Store.writeLocal(text);
       root.location.reload();
     });

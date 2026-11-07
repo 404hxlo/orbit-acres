@@ -3,10 +3,13 @@
   const OA = root.OA;
   const Sim = OA.Sim;
   const KEY = 'orbitAcres.save.v1';
+  const BACKUP = 'orbitAcres.backup.v1';
   const Store = (OA.Store = { doc: null, dirty: false, writing: false });
 
   Store.readLocal = () => { try { return root.localStorage.getItem(KEY); } catch (e) { return null; } };
   Store.writeLocal = (text) => { try { root.localStorage.setItem(KEY, text); } catch (e) { /* private window: keep playing */ } };
+  Store.readBackup = () => { try { return root.localStorage.getItem(BACKUP); } catch (e) { return null; } };
+  Store.writeBackup = (text) => { try { root.localStorage.setItem(BACKUP, text); } catch (e) { /* nothing to keep */ } };
   Store.clearLocal = () => { try { root.localStorage.removeItem(KEY); } catch (e) { /* nothing to clear */ } };
 
   // Cloud saves work when the game runs as a published page and you are signed in.
@@ -79,6 +82,16 @@
     OA.World.setAtlas(tex);
     OA.World.start();
     if (OA.UI) OA.UI.init({ fresh, away });
+
+    // A colony link was opened: offer to load it, and clear it from the address.
+    const colonyLink = () => {
+      const hash = root.location.hash || '';
+      if (!hash.startsWith('#colony=')) return;
+      try { root.history.replaceState(null, '', root.location.pathname + root.location.search); } catch (e) { /* the prompt still works */ }
+      OA.Transfer.decode(hash).then(OA.UI.offerColony).catch((e) => OA.UI.fail({ why: OA.Transfer.why(e) }));
+    };
+    colonyLink();
+    root.addEventListener('hashchange', colonyLink);
     progressBar(1);
     OA.bootMs = Math.round(performance.now());
 

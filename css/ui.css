@@ -197,6 +197,12 @@ small { font-size: 12.5px; color: var(--muted); font-weight: 700; }
 .toggle.on { background: #24785f; color: #fff; box-shadow: 0 0 0 2px var(--mint); }
 .keys summary { cursor: pointer; color: var(--text); font-weight: 800; }
 
+/* Moving a colony */
+.mv { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 16px; background: #1b1254; flex: none; }
+.mv h3 { font-size: 18px; }
+.mv-code { text-align: center; font: 400 40px var(--display); letter-spacing: .08em; color: var(--sun); padding: 4px 0; user-select: text; -webkit-user-select: text; }
+#codeIn, #codeOut { width: 100%; box-sizing: border-box; font: 700 16px var(--body); color: var(--text); background: #120b3b; border: 2px solid var(--line); border-radius: 12px; padding: 9px 12px; resize: none; user-select: text; -webkit-user-select: text; touch-action: auto; }
+
 /* ---- Toasts, tips, labels, flyers ---- */
 #toasts { position: absolute; top: calc(max(8px, env(safe-area-inset-top, 0px)) + 66px); left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 5px; width: min(420px, 92%); z-index: 45; }
 .toast { padding: 8px 14px; border-radius: 13px; background: #1b1254f2; box-shadow: 0 0 0 2px var(--line); text-align: center; animation: toast .2s; }

@@ -21,12 +21,22 @@ first time, to load the 3D library and fonts.
 - Tap pens and factories to work them. Hold on anything to move it.
 - Keyboard: arrow keys pan, `+` and `-` zoom, Esc closes windows.
 
+## Move a colony to another device
+
+Colonies save in the browser you play in. To carry one over, open Settings and choose Move colony to another device.
+
+- **Short code:** open the game on both devices, press Get a code, and type the code on the other device.
+- **Link:** copy the colony link and paste it anywhere, like email or your notes. Open it on the other device later.
+
+Loading replaces the colony on that device, and the old one can be brought back from the same window. After a move, the two copies carry on separately.
+
 ## Project layout
 
 | File | What it does |
 |---|---|
 | `js/data.js` | Everything you can grow, make, build and buy |
 | `js/sim.js` | The game rules, with no drawing, so they run headless |
+| `js/transfer.js` | Moving a colony between devices |
 | `js/gfx.js` | The planet-bending shaders and the model builder |
 | `js/art.js`, `js/models.js` | Every item and world model |
 | `js/world.js` | The living scene, camera and picking |

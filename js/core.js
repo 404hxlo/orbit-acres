@@ -1,7 +1,7 @@
 // Orbit Acres: shared namespace, small helpers and the event bus.
 (function (root) {
   const OA = (root.OA = root.OA || {});
-  OA.VERSION = '1.0.0';
+  OA.VERSION = '1.1.0';
   OA.SAVE_VERSION = 1;
 
   const listeners = {};
