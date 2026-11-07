@@ -50,7 +50,7 @@
     OA.DECOR.forEach((d) => job('decor:' + d.id, () => M.decor(d.id), CORNER));
     OA.TREES.forEach((t) => job('tree:' + t.id, () => M.tree(t.id, 'fruit'), CORNER));
     OA.CRITTERS.forEach((c) => job('pen:' + c.id, () => M.pen(c.id), CORNER));
-    job('field', () => M.crop('wheat', 3), CORNER);
+    job('field', () => M.plotSticker(), CORNER);
     job('silo', () => M.silo(), CORNER);
     job('bay', () => M.bay(), CORNER);
     job('post', () => M.post(), CORNER);
@@ -84,11 +84,19 @@
     ctx.restore();
     cells.bubble = count++;
 
+    G.iconPass = true;
     const SS = CELL * 2;
     const rt = new T.WebGLRenderTarget(SS, SS, { format: T.RGBAFormat, type: T.UnsignedByteType, minFilter: T.LinearFilter, magFilter: T.LinearFilter });
     const scene = new T.Scene();
-    const hemi = new T.HemisphereLight(0xffffff, 0x8f7fd0, 0.78);
-    const dir = new T.DirectionalLight(0xfff4e6, 0.72);
+    const pbr = G.Q.pbr;
+    if (pbr) {
+      rt.texture.encoding = T.sRGBEncoding;
+      scene.environment = G.envTex;
+      renderer.toneMapping = T.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.05;
+    }
+    const hemi = new T.HemisphereLight(0xffffff, 0x8f7fd0, pbr ? 0.4 : 0.78);
+    const dir = new T.DirectionalLight(0xfff4e6, pbr ? 2.2 : 0.72);
     dir.position.set(-2, 4, 5);
     scene.add(hemi, dir);
     const cam = new T.PerspectiveCamera(16, 1, 0.1, 200);
@@ -169,7 +177,10 @@
     }
     renderer.setRenderTarget(null);
     renderer.setClearColor(0x0b0830, 1);
+    renderer.toneMapping = T.NoToneMapping;
     rt.dispose();
+    G.iconPass = false;
+    G.dropIconModels();
 
     const tex = new T.CanvasTexture(atlas);
     tex.minFilter = T.LinearMipmapLinearFilter;

@@ -27,11 +27,10 @@
     [[7, 12], [7, 33]],
   ];
 
-  let renderer, scene, camera, bgScene, bgCam, sun, hemi;
+  let renderer, scene, overlay, camera, sun, hemi;
   let world, things, sites, ground, groundTex, bgMat, stars, core, atmo, ring, ringMat, lake;
   let bubbleSys, partSys, blobSys;
   let pixelRatio = 1;
-  let quality = { shadows: 2048, ground: 2048, scatter: 1 };
   let elapsed = 0;
   let needShadow = true;
 
@@ -143,15 +142,16 @@
   };
 
   const initSky = () => {
-    bgScene = new T.Scene();
-    bgCam = new T.Camera();
+    const hdr = G.Q.pbr ? 'c = pow(c, vec3(2.2)) * 1.1;' : '';
     bgMat = new T.ShaderMaterial({
-      depthTest: false, depthWrite: false,
+      depthWrite: false,
       uniforms: { t: { value: paintSky() }, uOff: { value: new T.Vector2() }, uScale: { value: new T.Vector2(1, 1) } },
       vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 1.0, 1.0); }',
-      fragmentShader: 'uniform sampler2D t; uniform vec2 uOff; uniform vec2 uScale; varying vec2 vUv; void main(){ gl_FragColor = texture2D(t, (vUv - 0.5) * uScale + 0.5 + uOff); }',
+      fragmentShader: 'uniform sampler2D t; uniform vec2 uOff; uniform vec2 uScale; varying vec2 vUv; void main(){ vec3 c = texture2D(t, (vUv - 0.5) * uScale + 0.5 + uOff).rgb; ' + hdr + ' gl_FragColor = vec4(c, 1.0); }',
     });
-    bgScene.add(new T.Mesh(new T.PlaneGeometry(2, 2), bgMat));
+    const sky = new T.Mesh(new T.PlaneGeometry(2, 2), bgMat);
+    sky.frustumCulled = false;
+    scene.add(sky);
     // A few stars that actually twinkle.
     const n = 140;
     const pos = new Float32Array(n * 3);
@@ -161,13 +161,13 @@
     g.setAttribute('position', new T.BufferAttribute(pos, 3));
     g.setAttribute('aPh', new T.BufferAttribute(ph, 1));
     stars = new T.Points(g, new T.ShaderMaterial({
-      transparent: true, depthTest: false, depthWrite: false, blending: T.AdditiveBlending,
+      transparent: true, depthWrite: false, blending: T.AdditiveBlending,
       uniforms: { uTime: G.U.uTime, uPx: { value: 1 } },
       vertexShader: 'attribute float aPh; uniform float uTime; uniform float uPx; varying float vA; void main(){ vA = 0.45 + 0.55 * sin(uTime * 1.6 + aPh * 3.0); gl_PointSize = uPx * (1.5 + 2.0 * fract(aPh * 3.3)); gl_Position = vec4(position.xy, 1.0, 1.0); }',
-      fragmentShader: 'varying float vA; void main(){ float d = length(gl_PointCoord - 0.5); gl_FragColor = vec4(0.85, 0.9, 1.0, vA * smoothstep(0.5, 0.05, d)); }',
+      fragmentShader: 'varying float vA; void main(){ float d = length(gl_PointCoord - 0.5); gl_FragColor = vec4(' + (G.Q.pbr ? '1.6, 1.7, 2.0' : '0.85, 0.9, 1.0') + ', vA * smoothstep(0.5, 0.05, d)); }',
     }));
     stars.frustumCulled = false;
-    bgScene.add(stars);
+    scene.add(stars);
   };
 
   // ---- Ground ----
@@ -190,10 +190,18 @@
     return Math.max(-0.3, h);
   };
 
-  const hexToCss = (n) => '#' + n.toString(16).padStart(6, '0');
+  const roundRect = (x, l, t, w, h, r) => {
+    x.beginPath();
+    x.moveTo(l + r, t);
+    x.arcTo(l + w, t, l + w, t + h, r);
+    x.arcTo(l + w, t + h, l, t + h, r);
+    x.arcTo(l, t + h, l, t, r);
+    x.arcTo(l, t, l + w, t, r);
+    x.closePath();
+  };
   const paintGround = () => {
     const S = Sim.state();
-    const size = quality.ground;
+    const size = G.Q.ground;
     const c = groundTex ? groundTex.image : document.createElement('canvas');
     c.width = c.height = size;
     const x = c.getContext('2d');
@@ -219,44 +227,51 @@
 
     let seed = 11;
     const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
-    // Craters and pebbles on the wild ground.
-    for (let i = 0; i < 90; i++) {
-      const px = rnd() * size, py = rnd() * size, r = (0.8 + rnd() * rnd() * 4.5) * k;
-      x.fillStyle = 'rgba(40,24,100,.2)';
+    // Dust, flecks and craters on the wild ground.
+    for (let i = 0; i < 2600; i++) {
+      x.fillStyle = rnd() > 0.5 ? 'rgba(224,214,255,.16)' : 'rgba(40,26,92,.2)';
+      x.beginPath();
+      x.ellipse(rnd() * size, rnd() * size, (0.08 + rnd() * 0.3) * k, (0.05 + rnd() * 0.16) * k, rnd() * 3, 0, 7);
+      x.fill();
+    }
+    for (let i = 0; i < 110; i++) {
+      const px = rnd() * size, py = rnd() * size, r = (0.7 + rnd() * rnd() * 4.8) * k;
+      const pit = x.createRadialGradient(px, py - r * 0.15, r * 0.1, px, py, r);
+      pit.addColorStop(0, 'rgba(34,20,84,.42)');
+      pit.addColorStop(0.75, 'rgba(34,20,84,.24)');
+      pit.addColorStop(1, 'rgba(34,20,84,0)');
+      x.fillStyle = pit;
       x.beginPath(); x.ellipse(px, py, r, r * 0.86, 0, 0, 7); x.fill();
-      x.strokeStyle = 'rgba(214,202,255,.28)';
-      x.lineWidth = Math.max(1, r * 0.12);
-      x.beginPath(); x.ellipse(px, py + r * 0.04, r, r * 0.86, 0, 0.3, 3.2); x.stroke();
+      x.strokeStyle = 'rgba(226,216,255,.34)';
+      x.lineWidth = Math.max(1, r * 0.1);
+      x.beginPath(); x.ellipse(px, py + r * 0.04, r, r * 0.86, 0, 0.2, 3.3); x.stroke();
     }
 
-    // The claimed land grows lush.
+    // The claimed land grows thick moss.
     const lush = document.createElement('canvas');
     lush.width = lush.height = size;
     const u = lush.getContext('2d');
-    u.fillStyle = '#46c9a6';
+    u.fillStyle = '#26877a';
     u.fillRect(0, 0, size, size);
-    const blobCols = ['94,224,176', '56,178,160', '126,234,186', '44,160,158', '160,240,190'];
-    for (let i = 0; i < 520; i++) {
-      const px = rnd() * size, py = rnd() * size, r = (1.2 + rnd() * 6) * k;
-      const gr = u.createRadialGradient(px, py, 0, px, py, r);
-      const col = blobCols[Math.floor(rnd() * blobCols.length)];
-      gr.addColorStop(0, 'rgba(' + col + ',.42)');
-      gr.addColorStop(1, 'rgba(' + col + ',0)');
-      u.fillStyle = gr;
-      u.fillRect(px - r, py - r, r * 2, r * 2);
-    }
-    for (let i = 0; i < 5200; i++) {
-      const px = rnd() * size, py = rnd() * size;
-      const b = rnd();
-      u.fillStyle = b > 0.5 ? 'rgba(190,255,214,.36)' : 'rgba(30,130,130,.34)';
+    const patch = (count, r0, r1, cols, a) => {
+      for (let i = 0; i < count; i++) {
+        const px = rnd() * size, py = rnd() * size, r = (r0 + rnd() * (r1 - r0)) * k;
+        const gr = u.createRadialGradient(px, py, 0, px, py, r);
+        const col = cols[Math.floor(rnd() * cols.length)];
+        gr.addColorStop(0, 'rgba(' + col + ',' + a + ')');
+        gr.addColorStop(1, 'rgba(' + col + ',0)');
+        u.fillStyle = gr;
+        u.fillRect(px - r, py - r, r * 2, r * 2);
+      }
+    };
+    patch(170, 4, 11, ['52,170,140', '30,120,118', '84,190,146', '26,104,112'], 0.5);
+    patch(900, 0.9, 3.2, ['72,190,150', '34,134,124', '118,206,150', '22,96,104', '150,214,140'], 0.42);
+    patch(2600, 0.2, 0.75, ['110,214,160', '24,102,108', '170,226,150', '18,84,96'], 0.5);
+    for (let i = 0; i < 9000; i++) {
+      u.fillStyle = rnd() > 0.5 ? 'rgba(186,250,196,.32)' : 'rgba(12,70,84,.36)';
       u.beginPath();
-      u.ellipse(px, py, (0.05 + rnd() * 0.07) * k, (0.03 + rnd() * 0.04) * k, rnd() * 3, 0, 7);
+      u.ellipse(rnd() * size, rnd() * size, (0.03 + rnd() * 0.06) * k, (0.02 + rnd() * 0.04) * k, rnd() * 3, 0, 7);
       u.fill();
-    }
-    for (let i = 0; i < 380; i++) {
-      const px = rnd() * size, py = rnd() * size;
-      u.fillStyle = ['#ffb3df', '#fff0a8', '#ffffff', '#c9b0ff'][Math.floor(rnd() * 4)];
-      u.beginPath(); u.arc(px, py, (0.05 + rnd() * 0.05) * k, 0, 7); u.fill();
     }
     const mask = document.createElement('canvas');
     mask.width = mask.height = INNER * 2;
@@ -275,43 +290,66 @@
     u.drawImage(mask, 0, 0, size, size);
     x.drawImage(lush, 0, 0);
 
-    // Roads and hard stands.
+    // Cobbled roads.
     const road = (pts, w) => {
       x.lineCap = x.lineJoin = 'round';
-      x.strokeStyle = '#6d5fb0';
-      x.lineWidth = (w + 0.5) * k;
+      x.strokeStyle = 'rgba(30,18,78,.5)';
+      x.lineWidth = (w + 0.9) * k;
       x.beginPath();
       pts.forEach(([a, b], i) => (i ? x.lineTo(tx(a), tx(b)) : x.moveTo(tx(a), tx(b))));
       x.stroke();
-      x.strokeStyle = '#c8bdf2';
-      x.lineWidth = w * k;
+      x.strokeStyle = '#514490';
+      x.lineWidth = (w + 0.3) * k;
       x.stroke();
-      x.strokeStyle = 'rgba(255,255,255,.55)';
-      x.lineWidth = 0.1 * k;
-      x.setLineDash([0.7 * k, 0.9 * k]);
-      x.stroke();
-      x.setLineDash([]);
+      for (let i = 0; i < pts.length - 1; i++) {
+        const [a, b] = pts[i], [p, q] = pts[i + 1];
+        const len = Math.hypot(p - a, q - b);
+        const dx = (p - a) / len, dz = (q - b) / len;
+        const ang = Math.atan2(dz, dx);
+        for (let t = 0; t < len; t += 0.5) {
+          const row = Math.round(t / 0.5);
+          for (let col = -1; col <= 1; col++) {
+            const off = col * 0.66 + (row % 2 ? 0.22 : -0.22) + (rnd() - 0.5) * 0.05;
+            const px = a + dx * t - dz * off, pz = b + dz * t + dx * off;
+            const L = 56 + rnd() * 20;
+            x.fillStyle = 'hsl(' + (246 + rnd() * 16) + ',' + (20 + rnd() * 14) + '%,' + L + '%)';
+            x.save();
+            x.translate(tx(px), tx(pz));
+            x.rotate(ang + (rnd() - 0.5) * 0.12);
+            roundRect(x, -0.29 * k, -0.28 * k, (0.5 + rnd() * 0.08) * k, 0.56 * k, 0.09 * k);
+            x.fill();
+            x.restore();
+          }
+        }
+      }
     };
     ROADS.forEach((p) => road(p, 2));
+
     // Town square.
     const t = OA.SITES.town;
-    x.fillStyle = '#6d5fb0';
+    x.fillStyle = 'rgba(30,18,78,.5)';
+    x.fillRect(tx(t.x - 11.6), tx(t.z - 10.6), 23.2 * k, 21.2 * k);
+    x.fillStyle = '#4f4290';
     x.fillRect(tx(t.x - 11.2), tx(t.z - 10.2), 22.4 * k, 20.4 * k);
-    x.fillStyle = '#cfc5f4';
-    x.fillRect(tx(t.x - 11), tx(t.z - 10), 22 * k, 20 * k);
-    x.strokeStyle = 'rgba(109,95,176,.36)';
-    x.lineWidth = 0.04 * k;
-    for (let i = 0; i <= 22; i += 2) { x.beginPath(); x.moveTo(tx(t.x - 11 + i), tx(t.z - 10)); x.lineTo(tx(t.x - 11 + i), tx(t.z + 10)); x.stroke(); }
-    for (let i = 0; i <= 20; i += 2) { x.beginPath(); x.moveTo(tx(t.x - 11), tx(t.z - 10 + i)); x.lineTo(tx(t.x + 11), tx(t.z - 10 + i)); x.stroke(); }
+    for (let i = 0; i < 22; i++) {
+      for (let j = 0; j < 20; j++) {
+        x.fillStyle = 'hsl(' + (250 + rnd() * 12) + ',' + (20 + rnd() * 14) + '%,' + (66 + rnd() * 14) + '%)';
+        roundRect(x, tx(t.x - 11 + i) + 0.04 * k, tx(t.z - 10 + j) + 0.04 * k, 0.92 * k, 0.92 * k, 0.08 * k);
+        x.fill();
+      }
+    }
+    x.fillStyle = '#d99a2e';
+    x.beginPath(); x.arc(tx(t.x), tx(t.z), 2.4 * k, 0, 7); x.fill();
     x.fillStyle = '#ffcf5c';
-    x.beginPath(); x.arc(tx(t.x), tx(t.z), 2.3 * k, 0, 7); x.fill();
-    x.fillStyle = '#cfc5f4';
-    x.beginPath(); x.arc(tx(t.x), tx(t.z), 1.9 * k, 0, 7); x.fill();
+    x.beginPath(); x.arc(tx(t.x), tx(t.z), 2.2 * k, 0, 7); x.fill();
+    x.fillStyle = '#c9bff0';
+    x.beginPath(); x.arc(tx(t.x), tx(t.z), 1.85 * k, 0, 7); x.fill();
 
     if (!groundTex) {
       groundTex = new T.CanvasTexture(c);
-      groundTex.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+      groundTex.anisotropy = Math.min(16, renderer.capabilities.getMaxAnisotropy());
       groundTex.minFilter = T.LinearMipmapLinearFilter;
+      if (G.Q.linear) groundTex.encoding = T.sRGBEncoding;
     }
     groundTex.needsUpdate = true;
   };
@@ -336,7 +374,8 @@
         const x = -E + i * step, z = -E + j * step;
         pos.push(x, wildHeight(x, z) - (Math.max(Math.abs(x), Math.abs(z)) <= INNER + 0.1 ? 0.2 : 0), z);
         const c = wildColor(x, z);
-        col.push(c[0] / 255, c[1] / 255, c[2] / 255);
+        const lin = (v) => (G.Q.linear ? Math.pow(v / 255, 2.2) : v / 255);
+        col.push(lin(c[0]), lin(c[1]), lin(c[2]));
       }
     }
     for (let j = 0; j < cols - 1; j++) {
@@ -354,6 +393,7 @@
     const outer = new T.Mesh(og, G.mat.terrain);
     outer.frustumCulled = false;
     outer.receiveShadow = false;
+    W.outer = outer;
     scene.add(outer);
 
     // Solid core so nothing shows through on the far side.
@@ -420,15 +460,27 @@
       vertexShader: G.BEND_GLSL + '\nvarying vec2 vP; void main(){ vec4 w = modelMatrix * vec4(position, 1.0); vP = w.xz; w.y = 0.12; gl_Position = projectionMatrix * viewMatrix * oaBend(w); }',
       fragmentShader: `
         uniform float uTime; uniform vec3 uAtmo; uniform float uNight; varying vec2 vP; varying float vAng;
+        float wave(vec2 p) {
+          return sin(p.x * 0.9 + uTime * 0.7) + sin(p.y * 1.1 - uTime * 0.5) + sin((p.x + p.y) * 0.6 + uTime * 0.4)
+            + 0.5 * sin(p.x * 2.3 + p.y * 1.7 + uTime * 1.3) + 0.35 * sin(p.y * 3.1 - p.x * 2.1 - uTime * 1.1);
+        }
         void main(){
-          float w = sin(vP.x * 0.9 + uTime * 0.7) + sin(vP.y * 1.1 - uTime * 0.5) + sin((vP.x + vP.y) * 0.6 + uTime * 0.4);
-          vec3 c = mix(vec3(0.16, 0.30, 0.86), vec3(0.34, 0.94, 0.90), 0.5 + 0.17 * w);
-          c = mix(c, vec3(0.95, 0.42, 0.86), smoothstep(0.55, 1.0, sin(vP.x * 0.22 + vP.y * 0.31 + uTime * 0.2)) * 0.5);
+          float w = wave(vP);
+          vec2 g = vec2(wave(vP + vec2(0.08, 0.0)) - w, wave(vP + vec2(0.0, 0.08)) - w) * 3.0;
+          vec3 n = normalize(vec3(-g.x * 0.28, 1.0, -g.y * 0.28));
+          vec3 v = normalize(vec3(0.5, 0.75, 0.5));
+          vec3 c = mix(vec3(0.05, 0.13, 0.62), vec3(0.16, 0.80, 0.78), clamp(0.5 + 0.13 * w, 0.0, 1.0));
+          c = mix(c, vec3(0.86, 0.24, 0.74), smoothstep(0.55, 1.0, sin(vP.x * 0.22 + vP.y * 0.31 + uTime * 0.2)) * 0.45);
+          float fres = pow(1.0 - max(dot(n, v), 0.0), 3.0);
+          c = mix(c, vec3(0.55, 0.62, 1.1), fres * 0.7);
+          vec3 h = normalize(normalize(vec3(-0.45, 0.8, 0.3)) + v);
+          c += pow(max(dot(n, h), 0.0), 220.0) * vec3(3.2, 3.0, 3.4);
           float s = sin(vP.x * 2.3 + sin(vP.y * 1.3) * 2.0 + uTime) * sin(vP.y * 2.1 + sin(vP.x * 0.9) * 2.0 - uTime * 0.8);
-          c += pow(max(0.0, s), 14.0) * vec3(1.0, 0.9, 1.0) * 0.9;
+          c += pow(max(0.0, s), 16.0) * vec3(1.0, 0.9, 1.0) * 1.1;
           c *= 0.9 + 0.3 * uNight;
           float limb = smoothstep(0.7, 1.75, vAng);
-          gl_FragColor = vec4(mix(c, c * 0.55 + uAtmo * 0.28, limb), 1.0);
+          c = mix(c, c * 0.55 + uAtmo * 0.28, limb);
+          gl_FragColor = vec4(${G.Q.pbr ? 'c' : 'pow(c, vec3(0.6))'}, 1.0);
         }`,
     });
     lake = new T.Mesh(g, m);
@@ -465,7 +517,7 @@
       return true;
     };
     kinds.forEach((k) => {
-      const count = Math.round(k.n * quality.scatter);
+      const count = Math.round(k.n * G.Q.scatter);
       const inst = new T.InstancedMesh(G.M.wild(k.i), G.mat.soft, count);
       inst.frustumCulled = false;
       inst.castShadow = false;
@@ -526,7 +578,7 @@
     const mesh = new T.Mesh(g, mat);
     mesh.frustumCulled = false;
     mesh.renderOrder = 20;
-    scene.add(mesh);
+    overlay.add(mesh);
     bubbleSys = {
       mesh, mat, n: 0, MAX,
       add(x, y, z, size, icon) {
@@ -574,7 +626,7 @@
           float d = length(q);
           float star = max(0.0, 0.5 - (abs(q.x) * abs(q.y) * 18.0 + d * 0.9));
           float a = smoothstep(0.5, 0.0, d) * 0.6 + star * 1.6;
-          gl_FragColor = vec4(vC.rgb, vC.a * a);
+          gl_FragColor = vec4(vC.rgb * ${G.Q.pbr ? '3.0' : '1.0'}, vC.a * a);
         }`,
     });
     const mesh = new T.Points(g, mat);
@@ -652,6 +704,111 @@
     };
   };
 
+  // Soft darkening where buildings meet the ground.
+  let contactSys = null;
+  const initContacts = () => {
+    if (!G.Q.pbr) return;
+    const c = document.createElement('canvas');
+    c.width = c.height = 128;
+    const x = c.getContext('2d');
+    x.shadowColor = 'rgba(8,4,34,1)';
+    x.shadowBlur = 20;
+    x.fillStyle = 'rgba(8,4,34,1)';
+    x.fillRect(30, 30, 68, 68);
+    const mat = G.bendMaterial(new T.MeshBasicMaterial({ map: new T.CanvasTexture(c), transparent: true, depthWrite: false, opacity: 0.62 }), {});
+    const g = new T.PlaneGeometry(1, 1, 3, 3);
+    g.rotateX(-PI / 2);
+    const mesh = new T.InstancedMesh(g, mat, 260);
+    mesh.frustumCulled = false;
+    mesh.renderOrder = 1;
+    scene.add(mesh);
+    const tmp = new T.Object3D();
+    contactSys = (list) => {
+      let n = 0;
+      list.forEach(([x0, z0, w, d]) => {
+        if (n >= 260) return;
+        tmp.position.set(x0, 0.05, z0);
+        tmp.scale.set(w * 1.9, 1, d * 1.9);
+        tmp.updateMatrix();
+        mesh.setMatrixAt(n++, tmp.matrix);
+      });
+      mesh.count = n;
+      mesh.instanceMatrix.needsUpdate = true;
+    };
+  };
+
+  // Grass, pebbles and tiny flowers scattered over the land.
+  const litter = [];
+  const nearRoad = (x, z, reach) => {
+    for (const road of ROADS) {
+      for (let i = 0; i < road.length - 1; i++) {
+        const [a, b] = road[i], [c, d] = road[i + 1];
+        const vx = c - a, vz = d - b;
+        const t = OA.clamp(((x - a) * vx + (z - b) * vz) / (vx * vx + vz * vz), 0, 1);
+        if (Math.hypot(x - (a + vx * t), z - (b + vz * t)) < reach) return true;
+      }
+    }
+    return false;
+  };
+  const addLitter = (geo, mat, count, o) => {
+    if (count < 1) return;
+    const inst = new T.InstancedMesh(geo, mat, count);
+    inst.frustumCulled = false;
+    inst.receiveShadow = true;
+    inst.castShadow = false;
+    let seed = o.seed || 77;
+    const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+    const E = o.where === 'wild' ? INNER - 1 : OA.LAND_EDGE;
+    const list = [];
+    for (let i = 0; i < count; i++) {
+      const x = (rnd() * 2 - 1) * E, z = (rnd() * 2 - 1) * E;
+      const clump = OA.fbm(x * 0.35 + 7, z * 0.35 + 3, 2);
+      if (o.clump && clump < o.clump) continue;
+      if (nearRoad(x, z, 1.5) || inLake(x, z, 1)) continue;
+      if (o.where === 'wild') {
+        let hit = false;
+        for (const k in OA.SITES) { const q = OA.SITES[k]; if (Math.hypot(x - q.x, z - q.z) < (k === 'town' ? 15 : q.r + 2)) hit = true; }
+        if (hit) continue;
+      }
+      list.push({ x, z, r: rnd() * 6.28, s: OA.lerp(o.s0, o.s1, rnd()) * (0.8 + clump * 0.5), t: 0.82 + rnd() * 0.36 });
+    }
+    scene.add(inst);
+    litter.push({ inst, list, where: o.where, tint: o.tint });
+  };
+  const initLitter = () => {
+    const Q = G.Q;
+    if (!Q.grass) return;
+    const M = G.M;
+    addLitter(M.tuft(), G.mat.grass, Q.grass, { s0: 0.8, s1: 1.45, tint: true, seed: 101 });
+    addLitter(M.tuft2(), G.mat.grass, Math.round(Q.grass * 0.3), { s0: 0.9, s1: 1.5, tint: true, seed: 202, clump: 0.42 });
+    addLitter(M.flowers(), G.mat.grass, Math.round(Q.grass * 0.05), { s0: 0.8, s1: 1.2, tint: true, seed: 303, clump: 0.5 });
+    addLitter(M.pebble(0), G.mat.soft, Math.round(Q.grass * 0.05), { s0: 0.5, s1: 1.2, seed: 404 });
+    addLitter(M.pebble(1), G.mat.soft, Math.round(Q.grass * 0.1), { s0: 0.7, s1: 1.9, seed: 505, where: 'wild' });
+    addLitter(M.scrub(), G.mat.grass, Math.round(Q.grass * 0.14), { s0: 0.7, s1: 1.5, tint: true, seed: 606, where: 'wild', clump: 0.46 });
+  };
+  const regrow = () => {
+    const tmp = new T.Object3D();
+    const col = new T.Color();
+    litter.forEach((l) => {
+      let n = 0;
+      l.list.forEach((p) => {
+        const tx = Math.floor(p.x), tz = Math.floor(p.z);
+        const own = Sim.owned(tx, tz);
+        if (l.where === 'wild' ? own : !own || Sim.objAt(tx, tz) || Sim.rockAt(tx, tz)) return;
+        tmp.position.set(p.x, 0.02, p.z);
+        tmp.rotation.set(0, p.r, 0);
+        tmp.scale.setScalar(p.s);
+        tmp.updateMatrix();
+        l.inst.setMatrixAt(n, tmp.matrix);
+        if (l.tint) l.inst.setColorAt(n, col.setRGB(p.t, p.t, p.t));
+        n++;
+      });
+      l.inst.count = n;
+      l.inst.instanceMatrix.needsUpdate = true;
+      if (l.inst.instanceColor) l.inst.instanceColor.needsUpdate = true;
+    });
+  };
+
   // ---- Things on the map ----
   class Thing {
     constructor(o) {
@@ -683,7 +840,7 @@
       super(o);
       this.soil = G.mesh(G.M.field(), { receive: true });
       this.group.add(this.soil);
-      this.crop = G.mesh(new T.BufferGeometry(), { mat: G.mat.soft });
+      this.crop = G.mesh(new T.BufferGeometry(), { mat: G.mat.plant, cast: G.Q.name === 'high', receive: true });
       this.crop.visible = false;
       this.group.add(this.crop);
       this.key = '';
@@ -702,16 +859,13 @@
         this.grow = 0;
         this.crop.visible = !!o.crop;
         if (o.crop) this.crop.geometry = G.M.crop(o.crop, stage);
+        W.shadowsDirty();
       }
       if (this.grow < 1) {
         this.grow = Math.min(1, this.grow + dt * 3.4);
         const t = this.grow;
         const s = 0.72 + 0.28 * (1 + 2.2 * Math.pow(t - 1, 3) + 1.2 * Math.pow(t - 1, 2));
         this.crop.scale.set(1, s, 1);
-      } else if (stage === 3) {
-        const sway = Math.sin(elapsed * 2.2 + this.cx * 0.7 + this.cz) * 0.018;
-        this.crop.rotation.z = sway;
-        this.crop.rotation.x = sway * 0.6;
       }
       this.tickPop(dt);
     }
@@ -1202,7 +1356,8 @@
     ghost.group = new T.Group();
     const g = new T.PlaneGeometry(1, 1, 6, 6);
     g.rotateX(-PI / 2);
-    ghost.mat = G.bendMaterial(new T.MeshBasicMaterial({ color: 0x6ff5c8, transparent: true, opacity: 0.55, depthWrite: false }), { glow: false });
+    // Drawn over the model, because the taller models would otherwise hide the green and red.
+    ghost.mat = G.bendMaterial(new T.MeshBasicMaterial({ color: 0x6ff5c8, transparent: true, opacity: 0.5, depthWrite: false, depthTest: false }), { glow: false });
     ghost.plate = new T.Mesh(g, ghost.mat);
     ghost.plate.position.y = 0.12;
     ghost.plate.frustumCulled = false;
@@ -1245,6 +1400,14 @@
     syncBeacons();
     syncTown();
     syncMeteors();
+    regrow();
+    if (contactSys) {
+      const spots = [];
+      things.forEach((t) => {
+        if (['silo', 'bay', 'factory', 'post', 'field'].includes(t.o.type)) spots.push([t.cx, t.cz, t.w + 0.1, t.d + 0.1]);
+      });
+      contactSys(spots);
+    }
     W.shadowsDirty();
   };
   W.thing = (id) => things.get(id);
@@ -1395,6 +1558,7 @@
   };
 
   // ---- Time of day ----
+  W.look = { sun: 2.1, hemi: 0.3, env: 0.62, groundEnv: 0.6, exposure: 0.62, bloom: 0.04, sat: 1.14, halo: 0.34 };
   const CYCLE = 420;
   const dayC = { hs: new T.Color(0xe6dcff), hg: new T.Color(0x6a58b0), s: new T.Color(0xfff0dc) };
   const duskC = { hs: new T.Color(0xc2a0f0), hg: new T.Color(0x5a3f8f), s: new T.Color(0xffb088) };
@@ -1415,9 +1579,21 @@
     lerp3(hemi.color, 'hs');
     lerp3(hemi.groundColor, 'hg');
     lerp3(sun.color, 's');
-    hemi.intensity = OA.lerp(0.56, 0.78, night);
-    sun.intensity = OA.lerp(0.62, 0.42, night);
+    if (G.Q.pbr) {
+      const L = W.look;
+      hemi.intensity = OA.lerp(L.hemi, L.hemi * 1.3, night);
+      sun.intensity = OA.lerp(L.sun, L.sun * 0.32, night);
+      const env = OA.lerp(L.env, L.env * 0.5, night);
+      G.mat.solid.envMapIntensity = G.mat.soft.envMapIntensity = G.mat.plant.envMapIntensity = env;
+      G.mat.ground.envMapIntensity = G.mat.terrain.envMapIntensity = env * L.groundEnv;
+      G.Post.set({ exposure: OA.lerp(L.exposure, L.exposure * 1.2, night), bloom: L.bloom, sat: L.sat });
+      atmo.material.opacity = L.halo;
+    } else {
+      hemi.intensity = OA.lerp(0.56, 0.78, night);
+      sun.intensity = OA.lerp(0.62, 0.42, night);
+    }
     G.U.uNight.value = night;
+    G.U.uNightGlow.value = OA.lerp(0.08, 1, night);
     G.U.uRim.value.setHex(night > 0.5 ? 0x8fa0ff : 0xb8a0ff);
   };
 
@@ -1432,13 +1608,92 @@
     const a = w / h;
     bgMat.uniforms.uScale.value.set(a > 1 ? 1 : a, a > 1 ? 1 / a : 1);
     stars.material.uniforms.uPx.value = pixelRatio;
+    if (G.Post.on) {
+      const size = renderer.getDrawingBufferSize(new T.Vector2());
+      G.Post.resize(size.x, size.y);
+    }
+  };
+
+  // Soft, colored studio light for reflections, built in code.
+  const buildEnv = () => {
+    const s0 = new T.Scene();
+    s0.add(new T.Mesh(new T.SphereGeometry(50, 32, 16), new T.ShaderMaterial({
+      side: T.BackSide,
+      vertexShader: 'varying vec3 vP; void main(){ vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+      fragmentShader: `
+        varying vec3 vP;
+        void main(){
+          vec3 d = normalize(vP);
+          vec3 top = vec3(0.34, 0.3, 0.72), hor = vec3(1.25, 0.95, 1.15), low = vec3(0.1, 0.36, 0.34);
+          vec3 c = d.y > 0.0 ? mix(hor, top, pow(d.y, 0.55)) : mix(hor * 0.6, low, pow(-d.y, 0.4));
+          c += vec3(11.0, 10.0, 8.5) * pow(max(dot(d, normalize(vec3(-0.45, 0.8, 0.3))), 0.0), 90.0);
+          c += vec3(1.5, 1.4, 1.7) * pow(max(dot(d, normalize(vec3(0.7, 0.45, 0.55))), 0.0), 7.0);
+          c += vec3(0.5, 0.9, 1.0) * pow(max(dot(d, normalize(vec3(-0.6, 0.1, -0.7))), 0.0), 5.0);
+          gl_FragColor = vec4(c, 1.0);
+          #include <encodings_fragment>
+        }`,
+    })));
+    const auto = renderer.autoClear;
+    renderer.autoClear = true;
+    const pm = new T.PMREMGenerator(renderer);
+    const rt = pm.fromScene(s0, 0.02);
+    pm.dispose();
+    renderer.autoClear = auto;
+    scene.environment = rt.texture;
+    G.envTex = rt.texture;
+  };
+
+  // Picks how much the device can handle, unless the player chose in Settings.
+  const LEVELS = ['low', 'medium', 'high'];
+  const pickTier = () => {
+    let pref = 'auto';
+    try { pref = root.localStorage.getItem('orbitAcres.graphics') || 'auto'; } catch (e) { /* use the default */ }
+    W.graphicsPref = pref;
+    if (G.TIERS[pref]) return pref;
+    try {
+      const gl = document.createElement('canvas').getContext('webgl2');
+      if (!gl) return 'low';
+      const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+      const name = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : '';
+      const lose = gl.getExtension('WEBGL_lose_context');
+      if (lose) lose.loseContext();
+      if (/swiftshader|llvmpipe|software/i.test(name)) return 'low';
+    } catch (e) { return 'low'; }
+    const small = Math.min(root.innerWidth, root.innerHeight) < 560;
+    const cores = root.navigator.hardwareConcurrency || 4;
+    const mem = root.navigator.deviceMemory || 8;
+    // iPhones under-report their cores, and they all have strong graphics chips.
+    const iphone = /iPhone|iPad/.test(root.navigator.userAgent);
+    let tier;
+    if (small) tier = iphone || (cores >= 6 && mem >= 4) ? 'medium' : 'low';
+    else tier = cores <= 4 || mem <= 4 ? 'medium' : 'high';
+    // A device that could not keep up last time stays at the lower level.
+    let cap = null;
+    try { cap = root.localStorage.getItem('orbitAcres.graphicsCap'); } catch (e) { /* no limit */ }
+    const c = LEVELS.indexOf(cap);
+    return c >= 0 && c < LEVELS.indexOf(tier) ? cap : tier;
+  };
+  W.setGraphics = (pref) => {
+    try {
+      root.localStorage.setItem('orbitAcres.graphics', pref);
+      // Choosing Auto again gives the device a fresh start.
+      if (pref === 'auto') root.localStorage.removeItem('orbitAcres.graphicsCap');
+    } catch (e) { /* session only */ }
+  };
+  const stepDown = () => {
+    const toast = (text) => { if (OA.UI && OA.UI.toast) OA.UI.toast(text); };
+    if (W.graphicsPref !== 'auto') { toast('Running slowly? Lower Graphics in Settings for a smoother game.'); return; }
+    try {
+      root.localStorage.setItem('orbitAcres.graphicsCap', LEVELS[LEVELS.indexOf(G.Q.name) - 1]);
+      toast('Graphics will drop a level next time you open the game, so it runs smoother.');
+    } catch (e) { /* nowhere to remember it */ }
   };
 
   W.init = (canvas, opts) => {
-    const small = Math.min(root.innerWidth, root.innerHeight) < 560 || (root.navigator.hardwareConcurrency || 8) <= 4;
-    pixelRatio = Math.min(root.devicePixelRatio || 1, small ? 1.75 : 2);
-    quality = small ? { shadows: 1024, ground: 1024, scatter: 0.6 } : { shadows: 2048, ground: 2048, scatter: 1 };
-    renderer = new T.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+    const Q = G.setTier(pickTier());
+    pixelRatio = Math.min(root.devicePixelRatio || 1, Q.pixel);
+    renderer = new T.WebGLRenderer({ canvas, antialias: !Q.pbr, powerPreference: 'high-performance' });
+    if (Q.pbr && !G.Post.supported(renderer)) G.setTier('low');
     renderer.autoClear = false;
     renderer.setClearColor(0x0b0830, 1);
     renderer.shadowMap.enabled = true;
@@ -1447,19 +1702,24 @@
     W.renderer = renderer;
 
     G.initMaterials();
+    if (G.Q.detail) G.makeDetail(G.Q.detailSize);
+    if (G.Q.pbr) G.Post.init(renderer);
     scene = new T.Scene();
+    overlay = new T.Scene();
     camera = new T.PerspectiveCamera(26, 1, 2, 900);
     W.camera = camera;
     hemi = new T.HemisphereLight(0xe6dcff, 0x6a58b0, 0.6);
     sun = new T.DirectionalLight(0xfff0dc, 0.75);
     sun.position.set(-24, 44, 16);
     sun.castShadow = true;
-    sun.shadow.mapSize.set(quality.shadows, quality.shadows);
+    const shadowSize = Math.min(G.Q.shadow, renderer.capabilities.maxTextureSize);
+    sun.shadow.mapSize.set(shadowSize, shadowSize);
     const s = sun.shadow.camera;
     s.left = -52; s.right = 52; s.top = 52; s.bottom = -52; s.near = 1; s.far = 130;
     sun.shadow.bias = -0.0012;
     sun.shadow.normalBias = 0.05;
     scene.add(hemi, sun, sun.target);
+    if (G.Q.pbr) buildEnv();
 
     world = new T.Group();
     scene.add(world);
@@ -1469,6 +1729,8 @@
     initBubbles();
     initParticles();
     initBlobs();
+    initContacts();
+    initLitter();
     initSites();
     initGhost();
     wireEvents();
@@ -1483,7 +1745,7 @@
     root.addEventListener('resize', W.resize);
   };
 
-  let frameTimes = 0, frameCount = 0;
+  let frameTimes = 0, frameCount = 0, frameStart = 0, slowRuns = 0;
   W.frame = (dt) => {
     elapsed += dt;
     G.U.uTime.value = elapsed;
@@ -1497,16 +1759,27 @@
     blobSys.end();
     if (OA.UI && OA.UI.worldTick) OA.UI.worldTick(dt);
     if (needShadow) { renderer.shadowMap.needsUpdate = true; needShadow = false; }
-    renderer.clear();
-    renderer.render(bgScene, bgCam);
-    renderer.clearDepth();
-    renderer.render(scene, camera);
-    // If frames run long, trade a little sharpness for smoothness.
+    if (G.Post.on) {
+      G.Post.set({ tilt: G.Q.tilt * (1 - sstep(44, 90, cam.d)) });
+      G.Post.render(scene, camera, overlay);
+    } else {
+      renderer.setRenderTarget(null);
+      renderer.clear();
+      renderer.render(scene, camera);
+      renderer.render(overlay, camera);
+    }
+    // If frames run long, trade a little sharpness for smoothness, then detail.
     frameTimes += dt; frameCount++;
     if (frameTimes > 3) {
+      const t = root.performance.now();
+      const real = frameStart ? (t - frameStart) / frameCount / 1000 : 0;
       const avg = frameTimes / frameCount;
-      frameTimes = 0; frameCount = 0;
-      if (avg > 0.03 && pixelRatio > 1) { pixelRatio = Math.max(1, pixelRatio - 0.25); W.resize(); }
+      frameTimes = 0; frameCount = 0; frameStart = t;
+      // Under four frames a second means a hidden or paused page, not a slow device.
+      if (document.hidden || real > 0.25 || !real) return;
+      if (avg <= 0.036) slowRuns = 0;
+      else if (pixelRatio > 1) { pixelRatio = Math.max(1, pixelRatio - 0.25); W.resize(); }
+      else if (++slowRuns === 3 && G.Q.name !== 'low') stepDown();
     }
   };
 })(typeof window !== 'undefined' ? window : globalThis);

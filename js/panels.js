@@ -460,6 +460,7 @@
           <button class="toggle ${st.settings.sound ? 'on' : ''}" data-a="sound" aria-pressed="${st.settings.sound}">Sound effects</button>
           <button class="toggle ${st.settings.music ? 'on' : ''}" data-a="music" aria-pressed="${st.settings.music}">Music</button>
         </div>
+        <div class="field"><span>Graphics</span><div class="toggles">${['auto', 'high', 'medium', 'low'].map((g) => '<button class="toggle ' + (OA.World.graphicsPref === g ? 'on' : '') + '" data-a="gfx" data-g="' + g + '">' + g[0].toUpperCase() + g.slice(1) + '</button>').join('')}</div></div>
         <p class="lead">Your colony saves itself. Crops and goods keep working while the game is closed.</p>
         <details class="keys"><summary>Controls</summary><p class="lead">Drag to spin the planet. Pinch or scroll to zoom. Drag across ripe plots to harvest. Hold on a building to move it. On a keyboard, arrow keys pan, plus and minus zoom, and Esc closes windows.</p></details>
         <div class="row wrap"><button class="btn mint" data-a="move">Move colony to another device</button><button class="btn coral" data-a="wipe">Start a new colony</button></div>
@@ -467,8 +468,14 @@
       const input = el.querySelector('#colonyName');
       input.onchange = () => { st.name = input.value.trim() || 'New Haven'; UI.update(); };
     },
-    on(act) {
+    on(act, d) {
       const st = S();
+      if (act === 'gfx') {
+        OA.World.setGraphics(d.g);
+        OA.Store.save(true);
+        root.location.reload();
+        return;
+      }
       if (act === 'sound') st.settings.sound = !st.settings.sound;
       if (act === 'music') st.settings.music = !st.settings.music;
       if (act === 'move') UI.open('move');

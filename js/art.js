@@ -430,7 +430,7 @@
   G.itemModel = (id) => {
     const it = OA.ITEMS[id];
     const [fn, a, b] = it.art;
-    const m = new G.Mesher();
+    const m = new G.Mesher({ surf: 'fruit', ground: false });
     A[fn](m, a, b);
     return m.build();
   };

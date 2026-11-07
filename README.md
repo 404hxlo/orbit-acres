@@ -21,6 +21,16 @@ first time, to load the 3D library and fonts.
 - Tap pens and factories to work them. Hold on anything to move it.
 - Keyboard: arrow keys pan, `+` and `-` zoom, Esc closes windows.
 
+## Graphics
+
+Settings has a Graphics choice: Auto, High, Medium or Low. Auto picks one for the device.
+
+- **High:** physically based materials, reflections, film-style tone mapping, soft glow, baked shading, dense grass.
+- **Medium:** the same look with less detail, for phones.
+- **Low:** simple shading for older devices.
+
+All of it is still generated in code, so the game has no image or model files to download.
+
 ## Move a colony to another device
 
 Colonies save in the browser you play in. To carry one over, open Settings and choose Move colony to another device.
@@ -37,7 +47,8 @@ Loading replaces the colony on that device, and the old one can be brought back 
 | `js/data.js` | Everything you can grow, make, build and buy |
 | `js/sim.js` | The game rules, with no drawing, so they run headless |
 | `js/transfer.js` | Moving a colony between devices |
-| `js/gfx.js` | The planet-bending shaders and the model builder |
+| `js/gfx.js` | Quality levels, the planet-bending shaders, materials and the model builder |
+| `js/post.js` | Soft glow, focus falloff, tone mapping and color grading |
 | `js/art.js`, `js/models.js` | Every item and world model |
 | `js/world.js` | The living scene, camera and picking |
 | `js/icons.js` | Renders models into the sticker sheet |
