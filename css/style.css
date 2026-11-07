@@ -1,0 +1,30 @@
+/* Layout: the planet fills the screen, and everything else floats over it. */
+:root {
+  --void: #120a30;
+  --hull: #251a5c;
+  --hull-2: #33277a;
+  --hull-3: #43349a;
+  --line: #6a58d6;
+  --mint: #6ff5c8;
+  --sun: #ffcf5c;
+  --coral: #ff7a6b;
+  --cyan: #66e3ff;
+  --text: #f6f2ff;
+  --muted: #bdb3ea;
+  --display: 'Righteous', 'Trebuchet MS', 'Segoe UI', sans-serif;
+  --body: 'Nunito', 'Segoe UI', system-ui, sans-serif;
+  color-scheme: dark;
+}
+html, body { height: 100%; margin: 0; overflow: hidden; background: var(--void); color: var(--text); font-family: var(--body); font-weight: 700; -webkit-tap-highlight-color: transparent; overscroll-behavior: none; }
+#app { position: fixed; inset: 0; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; }
+#view { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+#loader { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; background: radial-gradient(circle at 50% 40%, #2c1c78, #0d0830 70%); transition: opacity .6s; z-index: 50; }
+#loader.gone { opacity: 0; pointer-events: none; }
+#loader h1 { font-family: var(--display); font-weight: 400; font-size: 44px; margin: 0; }
+.load-planet { width: 92px; height: 92px; border-radius: 50%; background: radial-gradient(circle at 34% 28%, #a8ffe0, #46c9a6 45%, #2a6f9a 100%); box-shadow: 0 0 40px #66e3ff66; position: relative; }
+.load-planet span { position: absolute; left: -22px; right: -22px; top: 40px; height: 12px; border-radius: 50%; border: 3px solid #ffcf5c; transform: rotate(-16deg); }
+.load-track { width: min(280px, 70vw); height: 12px; border-radius: 8px; background: #1b1150; overflow: hidden; }
+#loadfill { height: 100%; width: 0; border-radius: 8px; background: var(--mint); transition: width .15s; }
+#loadmsg { margin: 0; color: var(--muted); text-align: center; padding: 0 20px; }
+#loadmsg.bad { color: var(--coral); }
+.ic { display: inline-block; width: var(--is, 40px); height: var(--is, 40px); background-size: 1600% 1600%; background-position: calc(var(--ix) * 100% / 15) calc(var(--iy) * 100% / 15); flex: none; vertical-align: middle; }
