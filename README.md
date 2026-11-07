@@ -23,13 +23,13 @@ first time, to load the 3D library and fonts.
 
 ## Graphics
 
-Settings has a Graphics choice: Auto, High, Medium or Low. Auto picks one for the device.
+Settings has a Graphics choice: Auto, High, Medium or Low. Auto picks one for the device, then watches the frame rate while you play. If frames run slow it drops sharpness, grass and effects within a second or two, and it brings them back once there is room. The fixed levels stay as they are.
 
-- **High:** physically based materials, reflections, film-style tone mapping, soft glow, baked shading, dense grass.
-- **Medium:** the same look with less detail, for phones.
-- **Low:** simple shading for older devices.
+- **High:** physically based materials, reflections, film-style tone mapping, soft glow, dense grass and the sharpest baked models.
+- **Medium:** the same look with less detail and half-size textures, for phones.
+- **Low:** simple shading with baked models, the lightest setup. Most phones start here.
 
-All of it is still generated in code, so the game has no image or model files to download.
+Every model starts out generated in code, so the game opens at once. Buildings then swap to versions baked in Blender as they download in the background. If a download fails, or Data Saver is on, the code-built model stays and nothing else changes.
 
 ## Move a colony to another device
 
@@ -49,11 +49,14 @@ Loading replaces the colony on that device, and the old one can be brought back 
 | `js/transfer.js` | Moving a colony between devices |
 | `js/gfx.js` | Quality levels, the planet-bending shaders, materials and the model builder |
 | `js/post.js` | Soft glow, focus falloff, tone mapping and color grading |
+| `js/cooked.js`, `js/cooked-list.js` | Loads models baked in Blender and swaps them in |
 | `js/art.js`, `js/models.js` | Every item and world model |
 | `js/world.js` | The living scene, camera and picking |
 | `js/icons.js` | Renders models into the sticker sheet |
 | `js/ui.js`, `js/panels.js`, `js/games.js`, `js/guide.js`, `js/input.js`, `js/audio.js` | Screens, mine and fishing, tutorial, controls, sound |
 | `js/main.js` | Startup and saving |
+| `assets/cooked/` | Baked models, one file per model at two sizes |
+| `tools/cook/` | The Blender baking pipeline |
 
 ## Tools
 
@@ -71,3 +74,28 @@ node tools/bundle.js
 
 `bot.js` plays the game headless for a given number of hours and reports pacing, as a balance check.
 `bundle.js` rebuilds the single-file versions in `dist/`. Run it after every change.
+
+## Baking models in Blender
+
+Models are written in code, so baking starts from the running game.
+
+1. Open the game from `tools/serve.js` at the High graphics level, then run this in the browser console. It exports models to `tools/cook/raw/`.
+
+   ```js
+   const s = document.createElement('script'); s.src = '/tools/cook/dump.js'; document.head.append(s);
+   await OA.CookDump.run();
+   ```
+
+2. Bake them. This takes about 10 seconds a model on a recent graphics card.
+
+   ```bash
+   blender -b --factory-startup --python tools/cook/cook.py -- all
+   ```
+
+3. Update the list the game reads.
+
+   ```bash
+   node tools/cook/list.js
+   ```
+
+`cook.py` wraps each model in one light shell, keeps lamps, glass and railings as real geometry, and bakes the rest into textures with weathering added: grime in crevices, worn edges, streaks and dust. Change the look there. `tools/cook/gallery.js` lines models up on the planet to check them.

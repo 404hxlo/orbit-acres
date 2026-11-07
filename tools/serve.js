@@ -17,6 +17,15 @@ http.createServer((req, res) => {
     return;
   }
   const url = decodeURIComponent(req.url.split('?')[0]);
+  // Lets tools/cook/dump.js hand models from the page to Blender.
+  if (req.method === 'POST' && url.startsWith('/__cook/') && !url.slice(8).includes('/')) {
+    const dir = path.join(root, 'tools/cook/raw');
+    fs.mkdirSync(dir, { recursive: true });
+    const chunks = [];
+    req.on('data', (c) => chunks.push(c));
+    req.on('end', () => { fs.writeFileSync(path.join(dir, url.slice(8)), Buffer.concat(chunks)); res.writeHead(200); res.end('ok'); });
+    return;
+  }
   const file = path.join(root, url === '/' ? 'index.html' : url);
   if (!file.startsWith(root) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) { res.writeHead(404); res.end('Not found'); return; }
   res.writeHead(200, { 'Content-Type': types[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-store' });

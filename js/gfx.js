@@ -13,9 +13,9 @@
 
   // ---- Graphics quality ----
   G.TIERS = {
-    high: { name: 'high', pbr: true, linear: true, detail: true, msaa: 4, bloom: 5, tilt: 0.5, shadow: 4096, ao: 30, aoDirs: 16, grass: 14000, seg: 1.6, plant: 1, scatter: 1, ground: 2048, pixel: 2, detailSize: 512 },
-    medium: { name: 'medium', pbr: true, linear: true, detail: true, msaa: 0, bloom: 3, tilt: 0, shadow: 2048, ao: 18, aoDirs: 8, grass: 3000, seg: 1, plant: 0.55, scatter: 0.5, ground: 1024, pixel: 1.5, detailSize: 256 },
-    low: { name: 'low', pbr: false, linear: false, detail: false, msaa: 0, bloom: 0, tilt: 0, shadow: 1024, ao: 0, aoDirs: 0, grass: 0, seg: 1, plant: 0.5, scatter: 0.5, ground: 1024, pixel: 1.25, detailSize: 0 },
+    high: { name: 'high', pbr: true, linear: true, detail: true, cook: 'hi', msaa: 4, bloom: 5, tilt: 0.5, shadow: 4096, ao: 30, aoDirs: 16, grass: 14000, seg: 1.6, plant: 1, scatter: 1, ground: 2048, pixel: 2, detailSize: 512 },
+    medium: { name: 'medium', pbr: true, linear: true, detail: true, cook: 'lo', msaa: 0, bloom: 3, tilt: 0, shadow: 2048, ao: 18, aoDirs: 8, grass: 3000, seg: 1, plant: 0.55, scatter: 0.5, ground: 1024, pixel: 1.25, detailSize: 256 },
+    low: { name: 'low', pbr: false, linear: false, detail: false, cook: 'lo', msaa: 0, bloom: 0, tilt: 0, shadow: 2048, ao: 0, aoDirs: 0, grass: 0, seg: 1, plant: 0.5, scatter: 0.5, ground: 1024, pixel: 1.25, detailSize: 0 },
   };
   G.Q = G.TIERS.high;
   G.setTier = (name) => { G.Q = G.TIERS[name] || G.TIERS.high; return G.Q; };
@@ -30,6 +30,7 @@
     uRim: { value: new T.Color(0x9f8cff) },
     uAtmo: { value: new T.Color(0x5fd8ff) },
     uDetail: { value: null },
+    uDetailK: { value: 1 },
   };
 
   // CPU copy of the bend, for placing screen-space things on the planet.
@@ -102,8 +103,10 @@
     if (opts.detail) mat.defines.OA_DETAIL = '';
     if (opts.sway) mat.defines.OA_SWAY = '';
     if (opts.flat) mat.defines.OA_FLATSURF = '';
+    if (opts.cooked) mat.defines.OA_COOKED = '';
     mat.onBeforeCompile = (sh) => {
       Object.assign(sh.uniforms, G.U);
+      if (opts.cooked) sh.uniforms.uClass = { value: mat.userData.classMap };
       let v = sh.vertexShader;
       let f = sh.fragmentShader;
       v = insert(v, '#include <common>', BEND_GLSL + `
@@ -112,14 +115,19 @@
         varying vec2 vMisc;
         varying vec3 vDP;
         varying vec3 vDN;
-        #ifndef OA_FLATSURF
+        #if !defined(OA_FLATSURF) && !defined(OA_COOKED)
           attribute vec4 aSurf;
           attribute vec2 aMisc;
         #endif`);
       v = insert(v, '#include <begin_vertex>', SWAY);
       v = insert(v, '#include <fog_vertex>', `
         ${INSTANCED_WORLD}
-        #ifdef OA_FLATSURF
+        #if defined(OA_COOKED)
+          vSurf = vec4(1.0, 1.0, 0.0, 0.0);
+          vMisc = vec2(1.0, 0.0);
+          vDP = position;
+          vDN = normal;
+        #elif defined(OA_FLATSURF)
           vSurf = vec4(0.94, 0.0, 3.0, 0.0);
           vMisc = vec2(1.0, 0.0);
           vDP = vec3(oaW.x, 0.0, oaW.z) * 0.62;
@@ -139,11 +147,15 @@
         uniform float uNightGlow;
         uniform float uGlowK;
         uniform sampler2D uDetail;
+        uniform float uDetailK;
         varying float vAng;
         varying vec4 vSurf;
         varying vec2 vMisc;
         varying vec3 vDP;
         varying vec3 vDN;
+        #ifdef OA_COOKED
+          uniform sampler2D uClass;
+        #endif
         #ifdef OA_DETAIL
           vec4 oaTri(vec3 p, vec3 n) {
             vec3 w = pow(abs(n), vec3(4.0));
@@ -153,20 +165,32 @@
         #endif`);
       f = insert(f, '#include <color_fragment>', `
         float oaCls = floor(vSurf.z + 0.5);
+        float oaSeam = 0.0;
+        vec3 oaDP = vDP;
+        #ifdef OA_COOKED
+          oaCls = floor(texture2D(uClass, vUv).r * 4.0 + 0.5);
+          oaDP *= oaCls < 1.5 ? 0.42 : oaCls < 2.5 ? 0.8 : oaCls < 3.5 ? 1.1 : 2.4;
+          // Where one material meets another the detail jumps, which would light up as a ridge.
+          oaSeam = step(0.01, fwidth(oaCls));
+        #endif
         float oaDet = 0.5;
         #ifdef OA_DETAIL
-          if (oaCls > 0.5) {
-            vec4 oaD = oaTri(vDP, normalize(vDN));
+          if (oaCls > 0.5 && uDetailK > 0.5) {
+            vec4 oaD = oaTri(oaDP, normalize(vDN));
             oaDet = oaCls < 1.5 ? oaD.r : oaCls < 2.5 ? oaD.g : oaCls < 3.5 ? oaD.b : oaD.a;
             float oaMix = oaCls < 1.5 ? 0.62 : oaCls < 2.5 ? 0.3 : 0.85;
             diffuseColor.rgb *= mix(1.0, 0.5 + oaDet, oaMix);
           }
         #endif`);
-      f = insert(f, '#include <roughnessmap_fragment>', 'roughnessFactor = clamp(vSurf.x + (oaDet - 0.5) * 0.4, 0.04, 1.0);');
-      f = insert(f, '#include <metalnessmap_fragment>', 'metalnessFactor = vSurf.y;');
+      if (opts.cooked) {
+        f = insert(f, '#include <roughnessmap_fragment>', 'roughnessFactor = clamp(roughnessFactor + (oaDet - 0.5) * 0.4, 0.04, 1.0);');
+      } else {
+        f = insert(f, '#include <roughnessmap_fragment>', 'roughnessFactor = clamp(vSurf.x + (oaDet - 0.5) * 0.4, 0.04, 1.0);');
+        f = insert(f, '#include <metalnessmap_fragment>', 'metalnessFactor = vSurf.y;');
+      }
       f = insert(f, '#include <normal_fragment_maps>', `
         #ifdef OA_DETAIL
-          if (oaCls > 0.5) {
+          if (oaCls > 0.5 && oaSeam < 0.5 && uDetailK > 0.5) {
             float oaAmp = oaCls < 1.5 ? 0.05 : oaCls < 2.5 ? 0.012 : oaCls < 3.5 ? 0.09 : 0.03;
             vec3 oaSp = -vViewPosition;
             vec3 oaSx = dFdx(oaSp);
@@ -183,9 +207,10 @@
         totalEmissiveRadiance += diffuseColor.rgb * oaGlow * uGlowK;
         totalEmissiveRadiance += uRim * pow(1.0 - clamp(dot(normal, normalize(vViewPosition)), 0.0, 1.0), 3.0) * ${rim};`);
       f = insert(f, '#include <aomap_fragment>', `
-        reflectedLight.indirectDiffuse *= vMisc.x;
-        reflectedLight.indirectSpecular *= vMisc.x;
-        reflectedLight.directDiffuse *= mix(1.0, vMisc.x, 0.35);`);
+        ${opts.cooked ? 'float oaAO = texture2D(roughnessMap, vUv).r;' : 'float oaAO = vMisc.x;'}
+        reflectedLight.indirectDiffuse *= oaAO;
+        reflectedLight.indirectSpecular *= oaAO;
+        reflectedLight.directDiffuse *= mix(1.0, oaAO, 0.35);`);
       if (!opts.noLimb) f = insert(f, '#include <dithering_fragment>', LIMB_GLSL);
       sh.vertexShader = v;
       sh.fragmentShader = f;
@@ -203,6 +228,7 @@
     if (opts.sway) mat.defines.OA_SWAY = '';
     mat.onBeforeCompile = (sh) => {
       Object.assign(sh.uniforms, G.U);
+      if (opts.cooked) sh.uniforms.uShade = { value: mat.userData.shadeMap };
       let v = sh.vertexShader;
       let f = sh.fragmentShader;
       v = insert(v, '#include <common>', BEND_GLSL + `
@@ -223,13 +249,17 @@
         uniform float uNight;
         varying float vAng;
         varying float vAO;
+        ${opts.cooked ? 'uniform sampler2D uShade;' : ''}
         ${glow ? 'varying float vGlow;\nvarying float vRim;\n' : ''}`);
       if (glow) {
         f = insert(f, '#include <emissivemap_fragment>', `
           totalEmissiveRadiance += diffuseColor.rgb * vGlow * (0.75 + 0.55 * uNight);
           totalEmissiveRadiance += uRim * vRim * ${(opts.rim === undefined ? 0.34 : opts.rim).toFixed(3)};`);
       }
-      f = insert(f, '#include <aomap_fragment>', 'reflectedLight.indirectDiffuse *= vAO;');
+      f = insert(f, '#include <aomap_fragment>', opts.cooked ? `
+        float oaShade = texture2D(uShade, vUv).r;
+        reflectedLight.indirectDiffuse *= 1.16 * vAO * (0.45 + 0.55 * oaShade);
+        reflectedLight.directDiffuse *= 1.16 * mix(1.0, oaShade, 0.2);` : 'reflectedLight.indirectDiffuse *= vAO;');
       if (!opts.noLimb) f = insert(f, '#include <dithering_fragment>', LIMB_GLSL);
       sh.vertexShader = v;
       sh.fragmentShader = f;
@@ -856,9 +886,10 @@
     const k = G.iconPass ? key + '#icon' : key;
     if (models.has(k)) return models.get(k);
     const m = new Mesher(opts);
-    if (G.iconPass) m.noAO = true;
+    if (G.iconPass || (G.Cooked && G.Cooked.will(key))) m.noAO = true;
     fn(m);
     const g = m.build();
+    if (!G.iconPass) g.userData.key = key;
     models.set(k, g);
     return g;
   };
@@ -871,6 +902,7 @@
     mesh.frustumCulled = false;
     mesh.castShadow = !!o.cast;
     mesh.receiveShadow = !!o.receive;
+    if (geo.userData.key && G.Cooked) G.Cooked.attach(mesh, geo.userData.key);
     return mesh;
   };
 })(typeof window !== 'undefined' ? window : globalThis);

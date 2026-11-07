@@ -803,7 +803,8 @@
         if (l.tint) l.inst.setColorAt(n, col.setRGB(p.t, p.t, p.t));
         n++;
       });
-      l.inst.count = n;
+      l.full = n;
+      l.inst.count = Math.floor(n * Trim.grass);
       l.inst.instanceMatrix.needsUpdate = true;
       if (l.inst.instanceColor) l.inst.instanceColor.needsUpdate = true;
     });
@@ -1644,49 +1645,151 @@
   };
 
   // Picks how much the device can handle, unless the player chose in Settings.
-  const LEVELS = ['low', 'medium', 'high'];
   const pickTier = () => {
     let pref = 'auto';
     try { pref = root.localStorage.getItem('orbitAcres.graphics') || 'auto'; } catch (e) { /* use the default */ }
     W.graphicsPref = pref;
     if (G.TIERS[pref]) return pref;
+    let name = '';
     try {
       const gl = document.createElement('canvas').getContext('webgl2');
       if (!gl) return 'low';
       const dbg = gl.getExtension('WEBGL_debug_renderer_info');
-      const name = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : '';
+      name = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : '';
       const lose = gl.getExtension('WEBGL_lose_context');
       if (lose) lose.loseContext();
-      if (/swiftshader|llvmpipe|software/i.test(name)) return 'low';
+      if (/swiftshader|llvmpipe|software|basic render/i.test(name)) return 'low';
     } catch (e) { return 'low'; }
+    // A device that could not keep up, even at its lightest, starts a level lower.
+    let cap = '';
+    try { cap = root.localStorage.getItem('orbitAcres.graphicsCap') || ''; } catch (e) { /* no limit */ }
+    if (cap === 'low') return 'low';
     const small = Math.min(root.innerWidth, root.innerHeight) < 560;
     const cores = root.navigator.hardwareConcurrency || 4;
     const mem = root.navigator.deviceMemory || 8;
     // iPhones under-report their cores, and they all have strong graphics chips.
     const iphone = /iPhone|iPad/.test(root.navigator.userAgent);
-    let tier;
-    if (small) tier = iphone || (cores >= 6 && mem >= 4) ? 'medium' : 'low';
-    else tier = cores <= 4 || mem <= 4 ? 'medium' : 'high';
-    // A device that could not keep up last time stays at the lower level.
-    let cap = null;
-    try { cap = root.localStorage.getItem('orbitAcres.graphicsCap'); } catch (e) { /* no limit */ }
-    const c = LEVELS.indexOf(cap);
-    return c >= 0 && c < LEVELS.indexOf(tier) ? cap : tier;
+    if (small) {
+      // Only the strongest phones can afford the full lighting; the rest stay smooth on Low.
+      const strong = iphone || /adreno[^\d]*(7[3-9]\d|[89]\d\d)|immortalis|mali-g(7[7-9]|[89]\d|7\d\d)/i.test(name);
+      return strong && cores >= 6 && mem >= 4 ? 'medium' : 'low';
+    }
+    if (cap === 'medium') return 'medium';
+    // Graphics built into the processor share its power and memory.
+    const shared = /intel|radeon\(tm\)|radeon graphics|vega \d/i.test(name);
+    return cores <= 4 || mem <= 4 || shared ? 'medium' : 'high';
   };
   W.setGraphics = (pref) => {
     try {
       root.localStorage.setItem('orbitAcres.graphics', pref);
       // Choosing Auto again gives the device a fresh start.
-      if (pref === 'auto') root.localStorage.removeItem('orbitAcres.graphicsCap');
+      if (pref === 'auto') {
+        root.localStorage.removeItem('orbitAcres.graphicsStep');
+        root.localStorage.removeItem('orbitAcres.graphicsCap');
+      }
     } catch (e) { /* session only */ }
   };
-  const stepDown = () => {
-    const toast = (text) => { if (OA.UI && OA.UI.toast) OA.UI.toast(text); };
-    if (W.graphicsPref !== 'auto') { toast('Running slowly? Lower Graphics in Settings for a smoother game.'); return; }
-    try {
-      root.localStorage.setItem('orbitAcres.graphicsCap', LEVELS[LEVELS.indexOf(G.Q.name) - 1]);
-      toast('Graphics will drop a level next time you open the game, so it runs smoother.');
-    } catch (e) { /* nowhere to remember it */ }
+
+  // ---- Holding the frame rate ----
+  // On Auto the game trims its own cost within a second or two of slowing down, and
+  // puts the quality back once there is room. A busy graphics card or a hot phone
+  // should mean a softer picture, not a slideshow. The on-screen buttons and text are
+  // drawn by the page, so they stay sharp even when the world is drawn smaller.
+  const Trim = W.trim = { steps: [], at: 0, grass: 1, tilt: 0, gaps: [], sum: 0, wait: 2, good: 0, need: 6, downs: 0, from: 0, fromAt: 0, cap: 0, upWindow: 0, slow: 0, warned: false };
+  const buildSteps = () => {
+    const Q = G.Q, px = pixelRatio, s = [];
+    const add = (p, msaa, bloom, tilt, grass, detail) => s.push({ px: Math.min(px, p), msaa, bloom: Math.min(Q.bloom, bloom), tilt, grass, detail: Q.detail ? detail : 0 });
+    add(px, Q.msaa, Q.bloom, Q.tilt, 1, 1);
+    if (Q.msaa || Q.tilt) add(px, 0, Q.bloom, 0, 1, 1);
+    if (px > 1.25) add(1.25, 0, 3, 0, 0.7, 1);
+    if (px > 1) add(1, 0, 2, 0, 0.5, 1);
+    add(0.85, 0, 2, 0, 0.3, 0);
+    add(0.7, 0, 1, 0, 0.15, 0);
+    add(0.6, 0, 1, 0, 0, 0);
+    return s;
+  };
+  const useStep = (i) => {
+    const s = Trim.steps[i];
+    Trim.at = i;
+    Trim.grass = s.grass;
+    Trim.tilt = s.tilt;
+    Trim.wait = 1;
+    Trim.good = 0;
+    litter.forEach((l) => { l.inst.count = Math.floor(l.full * s.grass); });
+    G.U.uDetailK.value = s.detail;
+    if (G.Post.on) G.Post.quality(s.msaa, s.bloom);
+    pixelRatio = s.px;
+    W.resize();
+    try { root.localStorage.setItem('orbitAcres.graphicsStep', String(i)); } catch (e) { /* session only */ }
+  };
+  const startTrim = () => {
+    Trim.steps = buildSteps();
+    const top = Trim.steps[0];
+    Trim.grass = 1;
+    Trim.tilt = top.tilt;
+    if (W.graphicsPref !== 'auto') return;
+    let saved = 0;
+    try { saved = Number(root.localStorage.getItem('orbitAcres.graphicsStep')) || 0; } catch (e) { /* start at the top */ }
+    // Start one step above where the last session settled, and climb from there.
+    if (saved > 1) useStep(Math.min(saved, Trim.steps.length - 1) - 1);
+  };
+  // gap: milliseconds since the last frame.
+  const pace = W.pace = (gap) => {
+    // A gap this long is a pause or a page in the background, not a frame rate.
+    if (gap > 900) return;
+    Trim.gaps.push(gap);
+    Trim.sum += gap;
+    if (Trim.sum < 1000) return;
+    // The middle frame, so a one-off stall doesn't count as running slowly.
+    const ms = Trim.gaps.sort((a, b) => a - b)[Trim.gaps.length >> 1];
+    Trim.gaps = [];
+    Trim.sum = 0;
+    if (Trim.upWindow > 0) Trim.upWindow--;
+    if (Trim.wait > 0) { Trim.wait--; return; }
+    if (W.graphicsPref !== 'auto') {
+      Trim.slow = ms > 36 ? Trim.slow + 1 : 0;
+      if (Trim.slow === 6 && !Trim.warned && G.Q.name !== 'low' && OA.UI && OA.UI.toast) {
+        Trim.warned = true;
+        OA.UI.toast('Running slowly? Try Auto or a lower Graphics level in Settings.');
+      }
+      return;
+    }
+    const slowLine = Trim.cap ? Trim.cap + 8 : 26;
+    const fastLine = Trim.cap ? Trim.cap + 3 : 19;
+    if (ms > slowLine) {
+      Trim.good = 0;
+      if (!Trim.downs) { Trim.from = ms; Trim.fromAt = Trim.at; }
+      Trim.downs++;
+      // Two steps down and no change: this screen is locked to this rate, and nothing
+      // is wrong. Battery savers do that to 30 frames a second.
+      if (Trim.downs > 2 && Math.abs(ms - Trim.from) < 2.5 && Math.abs(ms - 33.3) < 3) {
+        Trim.cap = ms;
+        Trim.downs = 0;
+        useStep(Trim.fromAt);
+        return;
+      }
+      if (Trim.at >= Trim.steps.length - 1) {
+        // Nothing left to trim, and still slow: the next start begins a level lower.
+        if (++Trim.slow === 8 && G.Q.name !== 'low') {
+          try {
+            root.localStorage.setItem('orbitAcres.graphicsCap', G.Q.name === 'high' ? 'medium' : 'low');
+            root.localStorage.removeItem('orbitAcres.graphicsStep');
+            if (OA.UI && OA.UI.toast) OA.UI.toast('Graphics will drop a level next time you open the game, so it runs smoother.');
+          } catch (e) { /* nowhere to remember it */ }
+        }
+        return;
+      }
+      // Going straight back down means that last step up was too hopeful.
+      if (Trim.upWindow > 0) Trim.need = Math.min(120, Trim.need * 2);
+      useStep(Trim.at + 1);
+    } else {
+      Trim.downs = 0;
+      Trim.slow = 0;
+      if (ms < fastLine && Trim.at > 0 && ++Trim.good >= Trim.need) {
+        Trim.upWindow = 4;
+        useStep(Trim.at - 1);
+      }
+    }
   };
 
   W.init = (canvas, opts) => {
@@ -1697,7 +1800,19 @@
     renderer.autoClear = false;
     renderer.setClearColor(0x0b0830, 1);
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = T.PCFSoftShadowMap;
+    // Soft shadows read the shadow map sixteen times a pixel. Low reads it four times,
+    // in a small pattern, which takes the stair steps off the edges for a quarter of the cost.
+    renderer.shadowMap.type = G.Q.pbr ? T.PCFSoftShadowMap : T.BasicShadowMap;
+    if (!G.Q.pbr) {
+      T.ShaderChunk.shadowmap_pars_fragment = T.ShaderChunk.shadowmap_pars_fragment.replace(
+        'shadow = texture2DCompare( shadowMap, shadowCoord.xy, shadowCoord.z );',
+        `vec2 oaT = 0.9 / shadowMapSize;
+        shadow = ( texture2DCompare( shadowMap, shadowCoord.xy + vec2( -oaT.x, -oaT.y * 0.4 ), shadowCoord.z )
+          + texture2DCompare( shadowMap, shadowCoord.xy + vec2( oaT.x, oaT.y * 0.4 ), shadowCoord.z )
+          + texture2DCompare( shadowMap, shadowCoord.xy + vec2( -oaT.x * 0.4, oaT.y ), shadowCoord.z )
+          + texture2DCompare( shadowMap, shadowCoord.xy + vec2( oaT.x * 0.4, -oaT.y ), shadowCoord.z ) ) * 0.25;`,
+      );
+    }
     renderer.shadowMap.autoUpdate = false;
     W.renderer = renderer;
 
@@ -1742,10 +1857,11 @@
   W.start = () => {
     W.sync();
     W.resize();
+    startTrim();
     root.addEventListener('resize', W.resize);
   };
 
-  let frameTimes = 0, frameCount = 0, frameStart = 0, slowRuns = 0;
+  let lastStamp = 0;
   W.frame = (dt) => {
     elapsed += dt;
     G.U.uTime.value = elapsed;
@@ -1760,7 +1876,7 @@
     if (OA.UI && OA.UI.worldTick) OA.UI.worldTick(dt);
     if (needShadow) { renderer.shadowMap.needsUpdate = true; needShadow = false; }
     if (G.Post.on) {
-      G.Post.set({ tilt: G.Q.tilt * (1 - sstep(44, 90, cam.d)) });
+      G.Post.set({ tilt: Trim.tilt * (1 - sstep(44, 90, cam.d)) });
       G.Post.render(scene, camera, overlay);
     } else {
       renderer.setRenderTarget(null);
@@ -1768,18 +1884,8 @@
       renderer.render(scene, camera);
       renderer.render(overlay, camera);
     }
-    // If frames run long, trade a little sharpness for smoothness, then detail.
-    frameTimes += dt; frameCount++;
-    if (frameTimes > 3) {
-      const t = root.performance.now();
-      const real = frameStart ? (t - frameStart) / frameCount / 1000 : 0;
-      const avg = frameTimes / frameCount;
-      frameTimes = 0; frameCount = 0; frameStart = t;
-      // Under four frames a second means a hidden or paused page, not a slow device.
-      if (document.hidden || real > 0.25 || !real) return;
-      if (avg <= 0.036) slowRuns = 0;
-      else if (pixelRatio > 1) { pixelRatio = Math.max(1, pixelRatio - 0.25); W.resize(); }
-      else if (++slowRuns === 3 && G.Q.name !== 'low') stepDown();
-    }
+    const stamp = root.performance.now();
+    if (lastStamp) pace(stamp - lastStamp);
+    lastStamp = stamp;
   };
 })(typeof window !== 'undefined' ? window : globalThis);

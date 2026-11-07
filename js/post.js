@@ -8,6 +8,7 @@
   const P = (G.Post = { on: false });
   let r, hdr, levels = [], fsScene, fsCam, quad, down, up, finish;
   let width = 0, height = 0;
+  let samples = 0, bloomSteps = 0;
 
   const VS = 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }';
   const DOWN = `
@@ -82,24 +83,33 @@
     quad = new T.Mesh(new T.PlaneGeometry(2, 2), down);
     quad.frustumCulled = false;
     fsScene.add(quad);
+    samples = G.Q.msaa;
+    bloomSteps = G.Q.bloom;
     P.on = true;
+  };
+
+  // Lighter or heavier settings while playing. The next resize rebuilds the targets.
+  P.quality = (msaa, bloom) => {
+    if (msaa === samples && bloom === bloomSteps) return;
+    samples = msaa;
+    bloomSteps = bloom;
+    width = 0;
   };
 
   P.resize = (w, h) => {
     if (!P.on || (w === width && h === height)) return;
     width = w; height = h;
     free();
-    const Q = G.Q;
     const opts = { type: T.HalfFloatType, format: T.RGBAFormat, minFilter: T.LinearFilter, magFilter: T.LinearFilter, depthBuffer: true, stencilBuffer: false };
-    if (Q.msaa > 1 && T.WebGLMultisampleRenderTarget) {
+    if (samples > 1 && T.WebGLMultisampleRenderTarget) {
       hdr = new T.WebGLMultisampleRenderTarget(w, h, opts);
-      hdr.samples = Q.msaa;
+      hdr.samples = samples;
     } else hdr = new T.WebGLRenderTarget(w, h, opts);
     let lw = w, lh = h;
-    for (let i = 0; i < Q.bloom; i++) {
+    for (let i = 0; i < bloomSteps; i++) {
       lw = Math.max(2, Math.floor(lw / 2));
       lh = Math.max(2, Math.floor(lh / 2));
-      levels.push({ w: lw, h: lh, down: makeRT(lw, lh), up: i < Q.bloom - 1 ? makeRT(lw, lh) : null });
+      levels.push({ w: lw, h: lh, down: makeRT(lw, lh), up: i < bloomSteps - 1 ? makeRT(lw, lh) : null });
     }
   };
 

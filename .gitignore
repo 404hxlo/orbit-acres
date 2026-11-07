@@ -1,2 +1,7 @@
 dist/
 node_modules/
+tools/cook/raw/
+tools/cook/work/
+tools/cook/cook.log
+tools/cook/run.out
+tools/cook/run.err
