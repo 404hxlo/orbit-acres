@@ -203,6 +203,14 @@ small { font-size: 12.5px; color: var(--muted); font-weight: 700; }
 .mv-code { text-align: center; font: 400 40px var(--display); letter-spacing: .08em; color: var(--sun); padding: 4px 0; user-select: text; -webkit-user-select: text; }
 #codeIn, #codeOut { width: 100%; box-sizing: border-box; font: 700 16px var(--body); color: var(--text); background: #120b3b; border: 2px solid var(--line); border-radius: 12px; padding: 9px 12px; resize: none; user-select: text; -webkit-user-select: text; touch-action: auto; }
 
+/* Drawn without the graphics card */
+.slow-note { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 12px; border-radius: 14px; background: #2a1450; color: var(--text); box-shadow: inset 0 0 0 2px var(--coral); }
+.slow-note span { flex: 1 1 200px; }
+.fix-steps { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 10px; color: var(--text); }
+.fix-steps b { color: var(--sun); }
+.fix-addr { display: flex; gap: 8px; margin-top: 6px; }
+.fix-addr input { flex: 1; min-width: 0; font: 700 15px var(--body); color: var(--text); background: #120b3b; border: 2px solid var(--line); border-radius: 12px; padding: 8px 11px; user-select: text; -webkit-user-select: text; }
+
 /* ---- Toasts, tips, labels, flyers ---- */
 #toasts { position: absolute; top: calc(max(8px, env(safe-area-inset-top, 0px)) + 66px); left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 5px; width: min(420px, 92%); z-index: 45; }
 .toast { padding: 8px 14px; border-radius: 13px; background: #1b1254f2; box-shadow: 0 0 0 2px var(--line); text-align: center; animation: toast .2s; }

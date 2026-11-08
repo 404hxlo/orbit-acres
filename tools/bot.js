@@ -1,17 +1,19 @@
 // Headless playtest: a greedy bot plays for a set amount of game time, and we
 // report how long each level takes and whether any rule ever goes wrong.
-// Run: node tools/bot.js [hours] [checksPerMinute]
+// Run: node tools/bot.js [hours] [checksPerMinute] [saveFile]
+// With a save file, the bot's colony is written there, ending at the present moment,
+// so the game can be tested with a grown colony.
 require('../js/core.js');
 require('../js/data.js');
 require('../js/sim.js');
 const OA = globalThis.OA;
 const Sim = OA.Sim;
 
-let clock = 1_800_000_000_000;
-OA.now = () => clock;
-
 const hours = Number(process.argv[2] || 6);
 const rate = Number(process.argv[3] || 4); // how many times a minute the bot acts
+const saveTo = process.argv[4];
+let clock = saveTo ? Date.now() - hours * 3600000 : 1_800_000_000_000;
+OA.now = () => clock;
 const levelTimes = {};
 const start = clock;
 OA.on('level', (e) => { levelTimes[e.level] = (clock - start) / 60000; });
@@ -126,6 +128,7 @@ const text = Sim.save();
 Sim.load(text);
 const again = Sim.save();
 if (JSON.parse(text).objs.length !== JSON.parse(again).objs.length) throw new Error('save lost objects');
+if (saveTo) require('fs').writeFileSync(saveTo, text);
 
 console.log('Played', hours, 'hours at', rate, 'checks a minute');
 console.log('Level reached', S.level, '| credits', OA.fmt(S.credits), '| stardust', S.dust, '| plots', Sim.fieldCount(), '| factories', Sim.objs('factory').length, '| pens', Sim.objs('pen').length);

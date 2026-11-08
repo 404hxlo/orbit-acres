@@ -31,6 +31,9 @@
   let world, things, sites, ground, groundTex, bgMat, stars, core, atmo, ring, ringMat, lake;
   let bubbleSys, partSys, blobSys;
   let pixelRatio = 1;
+  // How many pixels a frame gets when the processor draws in software: about 1270 by 650
+  // on a large screen, which a fast desktop processor can draw sixty times a second.
+  const SOFT_PIXELS = 800000;
   let elapsed = 0;
   let needShadow = true;
 
@@ -1602,13 +1605,16 @@
   W.resize = () => {
     const el = renderer.domElement;
     const w = el.parentElement.clientWidth, h = el.parentElement.clientHeight;
-    renderer.setPixelRatio(pixelRatio);
+    // Drawn in software, every pixel costs processor time, so the picture keeps to a
+    // fixed number of pixels and the page stretches it to fill the screen.
+    const ratio = pixelRatio * (W.software ? Math.min(1, Math.sqrt(SOFT_PIXELS / (w * h))) : 1);
+    renderer.setPixelRatio(ratio);
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
     const a = w / h;
     bgMat.uniforms.uScale.value.set(a > 1 ? 1 : a, a > 1 ? 1 / a : 1);
-    stars.material.uniforms.uPx.value = pixelRatio;
+    stars.material.uniforms.uPx.value = ratio;
     if (G.Post.on) {
       const size = renderer.getDrawingBufferSize(new T.Vector2());
       G.Post.resize(size.x, size.y);
@@ -1644,22 +1650,35 @@
     G.envTex = rt.texture;
   };
 
+  // Asks the browser what will draw the game. With graphics acceleration switched off,
+  // or a graphics driver it refuses, the processor draws everything in software.
+  const probeGpu = () => {
+    const shut = (gl) => { const lose = gl.getExtension('WEBGL_lose_context'); if (lose) lose.loseContext(); };
+    try {
+      const gl = document.createElement('canvas').getContext('webgl2');
+      if (!gl) return { name: '', none: true };
+      const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+      const name = dbg ? String(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) || '') : '';
+      shut(gl);
+      let soft = /swiftshader|llvmpipe|softpipe|software|basic render/i.test(name);
+      // A browser that hides the name still refuses a context that must be fast.
+      if (!name) {
+        const fast = document.createElement('canvas').getContext('webgl2', { failIfMajorPerformanceCaveat: true });
+        if (fast) shut(fast); else soft = true;
+      }
+      return { name, soft };
+    } catch (e) { return { name: '', none: true }; }
+  };
   // Picks how much the device can handle, unless the player chose in Settings.
   const pickTier = () => {
     let pref = 'auto';
     try { pref = root.localStorage.getItem('orbitAcres.graphics') || 'auto'; } catch (e) { /* use the default */ }
     W.graphicsPref = pref;
+    const gpu = probeGpu();
+    W.software = !!gpu.soft;
     if (G.TIERS[pref]) return pref;
-    let name = '';
-    try {
-      const gl = document.createElement('canvas').getContext('webgl2');
-      if (!gl) return 'low';
-      const dbg = gl.getExtension('WEBGL_debug_renderer_info');
-      name = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : '';
-      const lose = gl.getExtension('WEBGL_lose_context');
-      if (lose) lose.loseContext();
-      if (/swiftshader|llvmpipe|software|basic render/i.test(name)) return 'low';
-    } catch (e) { return 'low'; }
+    const name = gpu.name;
+    if (gpu.none || gpu.soft) return 'low';
     // A device that could not keep up, even at its lightest, starts a level lower.
     let cap = '';
     try { cap = root.localStorage.getItem('orbitAcres.graphicsCap') || ''; } catch (e) { /* no limit */ }
@@ -1794,8 +1813,9 @@
 
   W.init = (canvas, opts) => {
     const Q = G.setTier(pickTier());
-    pixelRatio = Math.min(root.devicePixelRatio || 1, Q.pixel);
-    renderer = new T.WebGLRenderer({ canvas, antialias: !Q.pbr, powerPreference: 'high-performance' });
+    pixelRatio = W.software ? 1 : Math.min(root.devicePixelRatio || 1, Q.pixel);
+    // Smoothed edges take four samples a pixel, about a third of the frame in software.
+    renderer = new T.WebGLRenderer({ canvas, antialias: !Q.pbr && !W.software, powerPreference: 'high-performance' });
     if (Q.pbr && !G.Post.supported(renderer)) G.setTier('low');
     renderer.autoClear = false;
     renderer.setClearColor(0x0b0830, 1);

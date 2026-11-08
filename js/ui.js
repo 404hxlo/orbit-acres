@@ -577,5 +577,6 @@
       if (away && away.ms > 90000) UI.welcomeBack(away);
       else if (Sim.dailyReady() && Sim.state().tut >= 99) UI.dailyGift();
     }
+    if (OA.World.software && UI.softTip) UI.softTip();
   };
 })(window);

@@ -461,6 +461,7 @@
           <button class="toggle ${st.settings.music ? 'on' : ''}" data-a="music" aria-pressed="${st.settings.music}">Music</button>
         </div>
         <div class="field"><span>Graphics</span><div class="toggles">${['auto', 'high', 'medium', 'low'].map((g) => '<button class="toggle ' + (OA.World.graphicsPref === g ? 'on' : '') + '" data-a="gfx" data-g="' + g + '">' + g[0].toUpperCase() + g.slice(1) + '</button>').join('')}</div></div>
+        ${OA.World.software ? '<div class="slow-note"><span>Your browser is drawing the game without your graphics card, so it runs slower and looks softer.</span><button class="btn mini mint" data-a="smooth">How to fix</button></div>' : ''}
         <p class="lead">Your colony saves itself. Crops and goods keep working while the game is closed.</p>
         <details class="keys"><summary>Controls</summary><p class="lead">Drag to spin the planet. Pinch or scroll to zoom. Drag across ripe plots to harvest. Hold on a building to move it. On a keyboard, arrow keys pan, plus and minus zoom, and Esc closes windows.</p></details>
         <div class="row wrap"><button class="btn mint" data-a="move">Move colony to another device</button><button class="btn coral" data-a="wipe">Start a new colony</button></div>
@@ -479,6 +480,7 @@
       if (act === 'sound') st.settings.sound = !st.settings.sound;
       if (act === 'music') st.settings.music = !st.settings.music;
       if (act === 'move') UI.open('move');
+      if (act === 'smooth') UI.open('smooth');
       if (act === 'wipe') {
         UI.confirm('Start over?', 'This erases your whole colony, on every device. It cannot be undone.', 'Erase everything', async () => {
           OA.Store.clearLocal();
@@ -586,6 +588,59 @@
   UI.offerColony = (data) => {
     Au.play('gem');
     UI.confirm('Load this colony?', data.name + ', level ' + data.level + '. It replaces the colony on this device. You can undo this from Settings.', 'Load it', () => OA.Transfer.apply(data));
+  };
+
+  // ---- Drawn without the graphics card ----
+  // How to switch graphics acceleration back on, in each browser's own words.
+  // Pages can't open a browser's settings themselves, so the address is there to copy.
+  const fixSteps = () => {
+    const nav = root.navigator, ua = nav.userAgent;
+    const relaunch = 'Press <b>Relaunch</b> when it appears.';
+    if (/Edg\//.test(ua)) {
+      return { addr: 'edge://settings/system', steps: ['Turn on <b>Use graphics acceleration when available</b>. On newer versions it sits under <b>System</b>.', 'Quit Edge from its <b>...</b> menu with <b>Close Microsoft Edge</b>, then open it again. Just closing the window can leave Edge running.'] };
+    }
+    if (/OPR\//.test(ua)) return { addr: 'opera://settings', steps: ['Search the settings for <b>hardware acceleration</b> and turn on <b>Use hardware acceleration when available</b>.', 'Quit Opera and open it again.'] };
+    if (nav.brave) return { addr: 'brave://settings/system', steps: ['Turn on <b>Use graphics acceleration when available</b>.', relaunch] };
+    if (/Firefox\//.test(ua)) return { addr: 'about:preferences', steps: ['Under <b>Performance</b>, untick <b>Use recommended performance settings</b>, then tick <b>Use hardware acceleration when available</b>.', 'Quit Firefox and open it again.'] };
+    if (/Chrome\//.test(ua)) return { addr: 'chrome://settings/system', steps: ['Turn on <b>Use graphics acceleration when available</b>.', relaunch] };
+    return { addr: '', steps: ['In your browser\'s settings, turn on <b>hardware acceleration</b> (some browsers call it <b>graphics acceleration</b>).', 'Quit the browser and open it again.'] };
+  };
+  P.smooth = {
+    title: 'Make It Smooth',
+    render(el) {
+      const f = fixSteps();
+      el.innerHTML = `
+        <p class="lead">Your browser is drawing the game with the processor instead of the graphics card, so everything runs slowly. Switching graphics acceleration back on fixes it.</p>
+        <section class="mv"><ol class="fix-steps">
+          ${f.addr ? '<li>Open a new tab and go to this address:<div class="fix-addr"><input readonly value="' + esc(f.addr) + '" aria-label="Settings address"><button class="btn mini mint" data-a="copy">Copy</button></div></li>' : ''}
+          ${f.steps.map((t) => '<li>' + t + '</li>').join('')}
+        </ol></section>
+        <p class="lead small">Until then the game draws a smaller picture and stretches it to fit, so it stays smooth but looks softer. You can find these steps again in Settings.</p>
+        <div class="row"><button class="btn mint" data-a="done">Got it</button></div>`;
+    },
+    on(act) {
+      if (act === 'done') { UI.close(); return; }
+      if (act === 'copy') {
+        const addr = fixSteps().addr;
+        // If copying is blocked, select the address so it can be copied by hand.
+        const pick = () => { const i = cur && cur.body.querySelector('.fix-addr input'); if (i) { i.focus(); i.select(); } };
+        if (root.navigator.clipboard && root.navigator.clipboard.writeText) {
+          root.navigator.clipboard.writeText(addr).then(() => UI.toast('Copied. Paste it into the address bar of a new tab.', 'good'), pick);
+        } else setTimeout(pick, 0);
+      }
+    },
+  };
+  // Shown by itself once on each device that draws in software, when nothing else is open.
+  UI.softTip = () => {
+    try { if (root.localStorage.getItem('orbitAcres.softTip') === '1') return; } catch (e) { /* show it this visit */ }
+    let tries = 0;
+    const wait = setInterval(() => {
+      if (++tries > 60) { clearInterval(wait); return; }
+      if (cur || UI.$('#overlay').children.length) return;
+      clearInterval(wait);
+      try { root.localStorage.setItem('orbitAcres.softTip', '1'); } catch (e) { /* it may show again next visit */ }
+      UI.open('smooth');
+    }, 1500);
   };
 
   // ---- Full-screen moments ----

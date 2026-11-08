@@ -29,6 +29,8 @@ Settings has a Graphics choice: Auto, High, Medium or Low. Auto picks one for th
 - **Medium:** the same look with less detail and half-size textures, for phones.
 - **Low:** simple shading with baked models, the lightest setup. Most phones start here.
 
+When a browser has graphics acceleration switched off, the processor draws the game in software, which is several times slower. The game notices, turns off edge smoothing, draws about 800,000 pixels a frame and stretches them to fill the screen, and shows once how to switch acceleration back on. Settings keeps a How to fix button while it lasts.
+
 Every model starts out generated in code, so the game opens at once. Buildings then swap to versions baked in Blender as they download in the background. If a download fails, or Data Saver is on, the code-built model stays and nothing else changes.
 
 ## Move a colony to another device
